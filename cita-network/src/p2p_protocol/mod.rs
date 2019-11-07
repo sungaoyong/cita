@@ -135,8 +135,10 @@ impl ServiceHandle for SHandle {
         match event {
             ServiceEvent::SessionOpen { session_context } => {
                 if let Some(sock_addr) = multiaddr_to_socketaddr(&session_context.address) {
-                    info!("[P2pProtocol] Service open on : {:?}, session id: {:?}, ty: {:?}, public_key: {:?}",
-                          sock_addr, session_context.id, session_context.ty, session_context.remote_pubkey);
+                    info!(
+                        "[P2pProtocol] Service open on : {:?}, session id: {:?}, ty: {:?}, public_key: {:?}",
+                        sock_addr, session_context.id, session_context.ty, session_context.remote_pubkey
+                    );
                     let req = PendingConnectedNodeReq::new(
                         session_context.id,
                         sock_addr,

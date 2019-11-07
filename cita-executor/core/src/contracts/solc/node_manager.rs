@@ -101,6 +101,7 @@ impl<'a> NodeManager<'a> {
     pub fn shuffled_stake_nodes(&self, block_tag: BlockTag) -> Option<Vec<Address>> {
         self.stake_nodes(block_tag).map(|mut stake_nodes| {
             shuffle(&mut stake_nodes, self.rng_seed);
+            trace!("nodes in shuffled_stake_nodes {:?}", stake_nodes);
             stake_nodes
         })
     }
@@ -115,9 +116,11 @@ impl<'a> NodeManager<'a> {
             if let EconomicalModel::Quota =
                 self.executor.sys_config.block_sys_config.economical_model
             {
+                trace!("nodes in stake_nodes is {:?}", nodes);
                 Some(nodes)
             } else {
                 self.stakes(block_tag).map(|stakes| {
+                    trace!("nodes is {:?}", nodes);
                     let total: u64 = stakes.iter().sum();
                     if total == 0 {
                         nodes

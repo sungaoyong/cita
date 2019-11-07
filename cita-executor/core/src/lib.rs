@@ -41,6 +41,7 @@ pub mod cita_vm_helper;
 pub mod contracts;
 pub mod data_provider;
 pub mod libexecutor;
+pub mod rs_contracts;
 pub mod storage;
 pub mod tx_gas_schedule;
 

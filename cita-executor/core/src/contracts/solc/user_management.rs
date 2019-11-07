@@ -23,10 +23,10 @@ use crate::libexecutor::executor::Executor;
 use crate::types::block_number::BlockTag;
 use crate::types::reserved_addresses;
 
-use cita_types::{Address, H160};
+use cita_types::{Address, H160, H256};
 
 const ALLGROUPS: &[u8] = &*b"queryGroups()";
-const ACCOUNTS: &[u8] = &*b"queryAccounts()";
+const ACCOUNTS: &[u8] = &*b"queryAccounts(address)";
 
 lazy_static! {
     static ref ACCOUNTS_HASH: Vec<u8> = method_tools::encode_to_vec(ACCOUNTS);
@@ -82,8 +82,11 @@ impl<'a> UserManagement<'a> {
 
     /// Accounts array
     pub fn accounts(&self, address: &Address, block_tag: BlockTag) -> Option<Vec<Address>> {
+        let mut tx_data = ACCOUNTS_HASH.to_vec();
+        tx_data.extend(H256::from(address).to_vec());
+        debug!("tx_data in accounts: {:?}", tx_data);
         self.executor
-            .call_method(address, &ACCOUNTS_HASH.as_slice(), None, block_tag)
+            .call_method(&CONTRACT_ADDRESS, &tx_data.as_slice(), None, block_tag)
             .ok()
             .and_then(|output| decode_tools::to_address_vec(&output))
     }

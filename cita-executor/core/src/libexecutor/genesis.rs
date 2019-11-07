@@ -16,21 +16,45 @@ use crate::libexecutor::block::Block;
 use crate::libexecutor::executor::{CitaDB, CitaTrieDB};
 use crate::types::db_indexes;
 use crate::types::db_indexes::DBIndex;
+use crate::types::reserved_addresses;
 use cita_database::{DataCategory, Database};
 use cita_types::traits::ConvertType;
 use cita_types::{clean_0x, Address, H256, U256};
-use cita_vm::state::{State as CitaState, StateObjectInfo};
+use cita_vm::state::State as CitaState;
 use crypto::digest::Digest;
 use crypto::md5::Md5;
 use rlp::encode;
 use rustc_hex::FromHex;
 use serde_json;
-use std::collections::HashMap;
+use std::cell::RefCell;
 use std::fs::File;
 use std::io::BufReader;
 use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Instant;
+use std::u64;
+
+use crate::rs_contracts::contracts::admin::Admin;
+use crate::rs_contracts::contracts::auto_exec::AutoExec;
+use crate::rs_contracts::contracts::batch_tx::BatchTx;
+use crate::rs_contracts::contracts::emergency_intervention;
+use crate::rs_contracts::contracts::group::group_manager::GroupManager;
+use crate::rs_contracts::contracts::node_manager::NodeManager;
+use crate::rs_contracts::contracts::perm::Permission;
+use crate::rs_contracts::contracts::price::Price;
+use crate::rs_contracts::contracts::quota_manager::QuotaManager;
+use crate::rs_contracts::contracts::role::role_manager::RoleManager;
+use crate::rs_contracts::contracts::sys_config::Sysconfig;
+use crate::rs_contracts::contracts::version::Version;
+
+use crate::rs_contracts::contracts::utils::{
+    encode_string, hex_to_integer, string_to_bool, string_to_static_str, string_to_u64,
+};
+use crate::rs_contracts::factory::ContractsFactory;
+use crate::rs_contracts::storage::db_contracts::ContractsDB;
+use std::collections::BTreeMap;
+use tiny_keccak::keccak256;
 
 #[cfg(feature = "privatetx")]
 use zktx::set_param_path;
@@ -39,13 +63,13 @@ use zktx::set_param_path;
 pub struct Contract {
     pub nonce: String,
     pub code: String,
-    pub storage: HashMap<String, String>,
+    pub storage: BTreeMap<String, String>,
     pub value: Option<U256>,
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct Spec {
-    pub alloc: HashMap<String, Contract>,
+    pub alloc: BTreeMap<String, Contract>,
     pub prevhash: H256,
     pub timestamp: u64,
 }
@@ -102,12 +126,20 @@ impl Genesis {
         }
     }
 
-    pub fn lazy_execute(&mut self, state_db: Arc<CitaTrieDB>) -> Result<(), String> {
-        let mut state = CitaState::from_existing(
+    pub fn lazy_execute(
+        &mut self,
+        state_db: Arc<CitaTrieDB>,
+        contracts_db: Arc<ContractsDB>,
+    ) -> Result<(), String> {
+        let state = CitaState::from_existing(
             Arc::<CitaTrieDB>::clone(&state_db),
             *self.block.state_root(),
         )
         .expect("Can not get state from db!");
+        let start = Instant::now();
+
+        let state = Arc::new(RefCell::new(state));
+        let mut contracts_factory = ContractsFactory::new(state.clone(), contracts_db.clone());
 
         self.block.set_version(0);
         self.block.set_parent_hash(self.spec.prevhash);
@@ -116,48 +148,272 @@ impl Genesis {
 
         info!("This is the first time to init executor, and it will init contracts on height 0");
         trace!("**** begin **** \n");
+        let mut permission_contracts = BTreeMap::new();
+        let mut admin = Address::default();
+
         for (address, contract) in self.spec.alloc.clone() {
             let address = Address::from_unaligned(address.as_str()).unwrap();
-            state.new_contract(&address, U256::from(0), U256::from(0), vec![]);
-            {
+            if address == Address::from(reserved_addresses::ADMIN) {
+                // admin contract
+                for (key, value) in contract.storage.clone() {
+                    if *key == "admin".to_string() {
+                        let admin = Address::from_unaligned(value.as_str()).unwrap();
+                        let contract_admin = Admin::init(admin);
+                        let str = serde_json::to_string(&contract_admin).unwrap();
+                        contracts_factory.register(address, str);
+                    }
+                }
+            } else if address == Address::from(reserved_addresses::QUOTA_MANAGER) {
+                // admin contract
+                for (key, value) in contract.storage.clone() {
+                    if *key == "admin".to_string() {
+                        let admin = Address::from_unaligned(value.as_str()).unwrap();
+                        let contract_admin = QuotaManager::new(admin);
+                        let str = serde_json::to_string(&contract_admin).unwrap();
+                        contracts_factory.register(address, str);
+                    }
+                }
+            } else if address == Address::from(reserved_addresses::AUTHORIZATION) {
+                // Authorization contract
+                // TODO: delete this contract address and use permission management
+                // Remove this contract and get admin from db directly
+                for (key, value) in contract.storage.clone() {
+                    if *key == "admin".to_string() {
+                        let param_address = Address::from_unaligned(value.as_str()).unwrap();
+                        // let contract_admin = Admin::init(admin);
+                        // let str = serde_json::to_string(&contract_admin).unwrap();
+                        // contracts_factory.register(address, str);
+                        // contracts_factory.set_admin_permission(admin);
+                        admin = param_address;
+                        trace!("Change admin to {:?}", admin);
+                    }
+                }
+            } else if address == Address::from(reserved_addresses::PRICE_MANAGEMENT) {
+                // price contract
+                for (key, value) in contract.storage.clone() {
+                    if *key == "quota_price".to_string() {
+                        let price = U256::from_dec_str(&value).unwrap();
+                        let contract_price = Price::new(price);
+                        let str = serde_json::to_string(&contract_price).unwrap();
+                        contracts_factory.register(address, str);
+                    }
+                }
+            } else if address == Address::from(reserved_addresses::VERSION_MANAGEMENT) {
+                // price contract
+                for (key, value) in contract.storage.clone() {
+                    if *key == "version".to_string() {
+                        let version = U256::from_dec_str(&value).unwrap();
+                        let contract_version = Version::new(version);
+                        let str = serde_json::to_string(&contract_version).unwrap();
+                        contracts_factory.register(address, str);
+                    }
+                }
+            } else if address == Address::from(reserved_addresses::NODE_MANAGER) {
+                let mut nodes = Vec::new();
+                let mut stakes = Vec::new();
+                for (key, value) in contract.storage.clone() {
+                    nodes.push(Address::from_unaligned(&key).unwrap());
+                    stakes.push(U256::from_dec_str(&value).unwrap());
+                }
+
+                let node_manager = NodeManager::new(nodes, stakes);
+                let str = serde_json::to_string(&node_manager).unwrap();
+                contracts_factory.register(address, str);
+            } else if address == Address::from(reserved_addresses::GROUP) {
+                let mut accounts = Vec::new();
+                let mut parent = Address::default();
+                let mut name = String::default();
+                for (key, value) in contract.storage.clone() {
+                    if *key == "parent".to_string() {
+                        parent = Address::from_unaligned(&value).unwrap();
+                    } else if *key == "name".to_string() {
+                        name = value;
+                    } else {
+                        accounts.push(Address::from_unaligned(&value).unwrap());
+                    }
+                }
+                let group_manager = GroupManager::new(&name, parent, accounts);
+                let str = serde_json::to_string(&group_manager).unwrap();
+                contracts_factory.register(address, str);
+            } else if address == Address::from(reserved_addresses::SYS_CONFIG) {
+                let auto_exec = contract
+                    .storage
+                    .get("auto_exec")
+                    .expect("get storage error");
+                let delay_block_number = contract
+                    .storage
+                    .get("delay_block_number")
+                    .expect("get storage error");
+                let avatar = contract.storage.get("avatar").expect("get storage error");
+                let symbol = contract.storage.get("symbol").expect("get storage error");
+                let block_interval = contract
+                    .storage
+                    .get("block_interval")
+                    .expect("get storage error");
+                let chain_id = contract.storage.get("chain_id").expect("get storage error");
+                let chain_name = contract
+                    .storage
+                    .get("chain_name")
+                    .expect("get storage error");
+                let chain_owner = contract
+                    .storage
+                    .get("chain_owner")
+                    .expect("get storage error");
+                let check_call_permission = contract
+                    .storage
+                    .get("check_call_permission")
+                    .expect("get storage error");
+                let check_create_contract_permission = contract
+                    .storage
+                    .get("check_create_contract_permission")
+                    .expect("get storage error");
+                let check_fee_back_platform = contract
+                    .storage
+                    .get("check_fee_back_platform")
+                    .expect("get storage error");
+                let check_quota = contract
+                    .storage
+                    .get("check_quota")
+                    .expect("get storage error");
+                let check_send_tx_permission = contract
+                    .storage
+                    .get("check_send_tx_permission")
+                    .expect("get storage error");
+                let economical_model = contract
+                    .storage
+                    .get("economical_model")
+                    .expect("get storage error");
+                let name = contract.storage.get("name").expect("get storage error");
+                let operator = contract.storage.get("operator").expect("get storage error");
+                let website = contract.storage.get("website").expect("get storage error");
+
+                trace!("Block interval is {:?}", block_interval);
+                trace!("Block interval after {:?}", string_to_u64(block_interval));
+
+                let system_config = Sysconfig::new(
+                    string_to_u64(delay_block_number),
+                    string_to_bool(check_call_permission),
+                    string_to_bool(check_send_tx_permission),
+                    string_to_bool(check_create_contract_permission),
+                    string_to_bool(check_quota),
+                    string_to_bool(check_fee_back_platform),
+                    Address::from(string_to_static_str(chain_owner.to_string())),
+                    encode_string(chain_name),
+                    string_to_u64(chain_id),
+                    encode_string(operator),
+                    encode_string(website),
+                    hex_to_integer(block_interval),
+                    string_to_u64(economical_model),
+                    name.to_string(),
+                    symbol.to_string(),
+                    avatar.to_string(),
+                    string_to_bool(auto_exec),
+                );
+                let str = serde_json::to_string(&system_config).unwrap();
+                contracts_factory.register(address, str);
+            } else if is_permssion_contract(address) {
+                let mut perm_name = String::default();
+                let mut conts = Vec::new();
+                let mut funcs = Vec::new();
+
+                for (key, value) in contract.storage.clone() {
+                    trace!("===> permission contract key {:?}", key);
+                    if *key == "perm_name".to_string() {
+                        perm_name = value;
+                    } else {
+                        let addr = Address::from_unaligned(value.as_str()).unwrap();
+                        conts.push(addr);
+                        let hash_key;
+                        if addr == Address::from(reserved_addresses::PERMISSION_SEND_TX)
+                            || addr == Address::from(reserved_addresses::PERMISSION_CREATE_CONTRACT)
+                        {
+                            hash_key = [0; 4].to_vec();
+                        } else {
+                            hash_key = keccak256(key.as_bytes()).to_vec()[0..4].to_vec();
+                        }
+                        funcs.push(hash_key);
+                    }
+                }
+
+                let permission = Permission::new(perm_name, conts, funcs);
+                let str = serde_json::to_string(&permission).unwrap();
+                permission_contracts.insert(address, str);
+            // contracts_factory.register(address, str);
+            } else {
                 state
-                    .set_code(&address, clean_0x(&contract.code).from_hex().unwrap())
-                    .expect("init code fail");
-                if let Some(value) = contract.value {
+                    .borrow_mut()
+                    .new_contract(&address, U256::from(0), U256::from(0), vec![]);
+                {
                     state
-                        .add_balance(&address, value)
-                        .expect("init balance fail");
+                        .borrow_mut()
+                        .set_code(&address, clean_0x(&contract.code).from_hex().unwrap())
+                        .expect("init code fail");
+                    if let Some(value) = contract.value {
+                        state
+                            .borrow_mut()
+                            .add_balance(&address, value)
+                            .expect("init balance fail");
+                    }
+                }
+                for (key, values) in contract.storage.clone() {
+                    state
+                        .borrow_mut()
+                        .set_storage(
+                            &address,
+                            H256::from_unaligned(key.as_ref()).unwrap(),
+                            H256::from_unaligned(values.as_ref()).unwrap(),
+                        )
+                        .expect("init code set_storage fail");
                 }
             }
-            for (key, values) in contract.storage.clone() {
-                state
-                    .set_storage(
-                        &address,
-                        H256::from_unaligned(key.as_ref()).unwrap(),
-                        H256::from_unaligned(values.as_ref()).unwrap(),
-                    )
-                    .expect("init code set_storage fail");
-            }
         }
-        state.commit().expect("state commit error");
+        // register emergency intervention
+        let emerg_contract = emergency_intervention::EmergencyIntervention::default();
+        let str = serde_json::to_string(&emerg_contract).unwrap();
+        contracts_factory.register(
+            Address::from(reserved_addresses::EMERGENCY_INTERVENTION),
+            str,
+        );
+        // register auto exec contract
+        let auto_exec = AutoExec::default();
+        let str = serde_json::to_string(&auto_exec).unwrap();
+        contracts_factory.register(Address::from(reserved_addresses::AUTO_EXEC), str);
+
+        // register batch tx
+        let batch_tx = BatchTx::default();
+        let str = serde_json::to_string(&batch_tx).unwrap();
+        contracts_factory.register(Address::from(reserved_addresses::BATCH_TX), str);
+
+        // register role manager
+        let role_manager = RoleManager::default();
+        let str = serde_json::to_string(&role_manager).unwrap();
+        contracts_factory.register(Address::from(reserved_addresses::ROLE_MANAGEMENT), str);
+
+        // register permission_contracts
+        contracts_factory.register_perms(admin, permission_contracts);
+        state.borrow_mut().commit().expect("state commit error");
+
         //query is store in chain
-        for (address, contract) in &self.spec.alloc {
-            let address = Address::from_unaligned(address.as_str()).unwrap();
-            for (key, values) in &contract.storage {
-                let result =
-                    state.get_storage(&address, &H256::from_unaligned(key.as_ref()).unwrap());
-                assert_eq!(
-                    H256::from_unaligned(values.as_ref()).unwrap(),
-                    result.expect("storage error")
-                );
-            }
-        }
+        // for (address, contract) in &self.spec.alloc {
+        //     let address = Address::from_unaligned(address.as_str()).unwrap();
+        //     for (key, values) in &contract.storage {
+        //         let result =
+        //             state.get_storage(&address, &H256::from_unaligned(key.as_ref()).unwrap());
+        //         assert_eq!(
+        //             H256::from_unaligned(values.as_ref()).unwrap(),
+        //             result.expect("storage error")
+        //         );
+        //     }
+        // }
 
         trace!("**** end **** \n");
-        let root = state.root;
+        let root = state.borrow().root;
         trace!("root {:?}", root);
         self.block.set_state_root(root);
         self.block.rehash();
+
+        let duration = start.elapsed();
+        trace!("Create genesis using times: {:?}", duration);
 
         self.save(state_db.database())
     }
@@ -198,12 +454,43 @@ impl Genesis {
     }
 }
 
+pub fn is_permssion_contract(addr: Address) -> bool {
+    if addr == Address::from(reserved_addresses::PERMISSION_SEND_TX)
+        || addr == Address::from(reserved_addresses::PERMISSION_CREATE_CONTRACT)
+        || addr == Address::from(reserved_addresses::PERMISSION_NEW_PERMISSION)
+        || addr == Address::from(reserved_addresses::PERMISSION_DELETE_PERMISSION)
+        || addr == Address::from(reserved_addresses::PERMISSION_UPDATE_PERMISSION)
+        || addr == Address::from(reserved_addresses::PERMISSION_SET_AUTH)
+        || addr == Address::from(reserved_addresses::PERMISSION_CANCEL_AUTH)
+        || addr == Address::from(reserved_addresses::PERMISSION_NEW_ROLE)
+        || addr == Address::from(reserved_addresses::PERMISSION_DELETE_ROLE)
+        || addr == Address::from(reserved_addresses::PERMISSION_UPDATE_ROLE)
+        || addr == Address::from(reserved_addresses::PERMISSION_SET_ROLE)
+        || addr == Address::from(reserved_addresses::PERMISSION_CANCEL_ROLE)
+        || addr == Address::from(reserved_addresses::PERMISSION_NEW_GROUP)
+        || addr == Address::from(reserved_addresses::PERMISSION_DELETE_GROUP)
+        || addr == Address::from(reserved_addresses::PERMISSION_UPDATE_GROUP)
+        || addr == Address::from(reserved_addresses::PERMISSION_NEW_NODE)
+        || addr == Address::from(reserved_addresses::PERMISSION_DELETE_NODE)
+        || addr == Address::from(reserved_addresses::PERMISSION_UPDATE_NODE)
+        || addr == Address::from(reserved_addresses::PERMISSION_ACCOUNT_QUOTA)
+        || addr == Address::from(reserved_addresses::PERMISSION_BLOCK_QUOTA)
+        || addr == Address::from(reserved_addresses::PERMISSION_BATCH_TX)
+        || addr == Address::from(reserved_addresses::PERMISSION_EMERGENCY_INTERVENTION)
+        || addr == Address::from(reserved_addresses::PERMISSION_QUOTA_PRICE)
+        || addr == Address::from(reserved_addresses::PERMISSION_VERSION)
+    {
+        return true;
+    }
+    false
+}
+
 #[cfg(test)]
 mod test {
     use crate::libexecutor::genesis::{Contract, Spec};
     use cita_types::{H256, U256};
     use serde_json;
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
     use std::str::FromStr;
 
     #[test]
@@ -256,7 +543,7 @@ mod test {
                         nonce: "1".to_owned(),
                         code: "0x6060604052600436106100745763".to_owned(),
                         value: Some(U256::from(0x10000000)),
-                        storage: HashMap::new(),
+                        storage: BTreeMap::new(),
                     },
                 ),
             ]

@@ -1,9 +1,10 @@
-CARGO=RUSTFLAGS='-F warnings' cargo
+# CARGO=RUSTFLAGS='-F warnings' cargo
+CARGO=cargo
 
 .PHONY: debug release test test-release bench fmt cov clean clippy security_audit
 
 debug:
-	$(CARGO) build -j 1 --all
+	$(CARGO) build --all
 	scripts/release.sh debug
 
 release:

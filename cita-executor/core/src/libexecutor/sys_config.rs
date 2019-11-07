@@ -59,11 +59,13 @@ impl GlobalSysConfig {
             .node_manager()
             .shuffled_stake_nodes(block_tag)
             .unwrap_or_else(NodeManager::default_shuffled_stake_nodes);
+        trace!("nodes in global system {:?}", conf.nodes);
 
         conf.validators = executor
             .node_manager()
             .nodes(block_tag)
             .unwrap_or_else(NodeManager::default_shuffled_stake_nodes);
+        trace!("validators in global system {:?}", conf.validators);
 
         let quota_manager = QuotaManager::new(executor);
         conf.block_quota_limit = quota_manager

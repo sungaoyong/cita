@@ -1084,10 +1084,7 @@ impl Chain {
         let mut logs = blocks
             .into_iter()
             .filter_map(|number| self.block_hash_by_height(number).map(|hash| (number, hash)))
-            .filter_map(|(number, hash)| {
-                self.block_receipts(hash)
-                    .map(|r| (number, hash, r.receipts))
-            })
+            .filter_map(|(number, hash)| self.block_receipts(hash).map(|r| (number, hash, r.receipts)))
             .filter_map(|(number, hash, receipts)| {
                 self.block_body_by_hash(hash)
                     .map(|ref b| (number, hash, receipts, b.transaction_hashes()))
@@ -1103,9 +1100,7 @@ impl Chain {
                     );
                     unreachable!();
                 }
-                log_index = receipts
-                    .iter()
-                    .fold(0, |sum, receipt| sum + receipt.logs.len());
+                log_index = receipts.iter().fold(0, |sum, receipt| sum + receipt.logs.len());
 
                 let receipts_len = receipts.len();
                 hashes.reverse();

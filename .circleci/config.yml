@@ -420,9 +420,9 @@ workflows:
       #     requires:
       #     - "Check Basic"
 
-      - "Check Clippy":
-          requires:
-            - "Check Basic"
+      # - "Check Clippy":
+      #     requires:
+      #       - "Check Basic"
       - "Release":
           requires:
             - "Check Basic"
@@ -449,9 +449,9 @@ workflows:
       # - "Test Snapshot Taking And Restoring":
       #     requires:
       #       - "Release"
-      - "Test Amend":
-          requires:
-            - "Release"
+      # - "Test Amend":
+      #     requires:
+      #       - "Release"
       - "Test Executor Process Invalid Proof":
           requires:
             - "Release"
@@ -471,9 +471,9 @@ workflows:
       - "Robustness Test":
           requires:
             - "Release"
-      - "Genesis Test":
-          requires:
-            - "Release"
+      # - "Genesis Test":
+      #     requires:
+      #       - "Release"
 
       - "Unit Test (sha3 & secp256k1)":
           requires:
@@ -488,23 +488,22 @@ workflows:
       - "Passed":
           requires:
               - "Check Basic"
-              - "Check Clippy"
+              # - "Check Clippy"
               - "Release"
               - "Basic Test"
               - "Basic Tls Test"
               - "JSON-RPC Mock Test in Quota Mode"
               - "Test Transfer Value in Charge Mode"
               - "Test System Features"
-              - "Test Amend"
+              # - "Test Amend"
               - "Test Executor Process Invalid Proof"
               - "Discovery Test for network"
               - "Byzantine Test in Quota Mode"
               - "Byzantine Test in Charge Mode"
               - "Robustness Test"
-              - "Genesis Test"
+              # - "Genesis Test"
               - "Unit Test (blake2b & ed25519)"
               - "Unit Test (sm3 & sm2)"
             # - "Crosschain Test"
             # - "Test Snapshot Taking And Restoring"
             # - "JSON-RPC Mock Test in Charge Mode"
-            

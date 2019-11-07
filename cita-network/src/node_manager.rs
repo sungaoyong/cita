@@ -147,8 +147,10 @@ impl ConsensusNodeTopology {
 
     pub fn update_validators(&mut self, height: u64, validators: BTreeSet<Address>) {
         if height < self.height || validators == self.validator_nodes {
-            debug!("No need update validator height {} self height {} validator {:?} self validator {:?}",
-            height,self.height,validators,self.validator_nodes);
+            debug!(
+                "No need update validator height {} self height {} validator {:?} self validator {:?}",
+                height, self.height, validators, self.validator_nodes
+            );
 
             if height > self.height {
                 self.height = height;
