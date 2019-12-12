@@ -1,4 +1,4 @@
-use crate::rs_contracts::contracts::utils::{clean_0x, extract_to_u32, get_latest_key};
+use crate::rs_contracts::contracts::tool::utils::{clean_0x, extract_to_u32, get_latest_key};
 
 use cita_types::traits::LowerHex;
 use cita_types::{Address, H256, U256};
@@ -27,18 +27,29 @@ use common_types::reserved_addresses;
 use ethabi::token::LenientTokenizer;
 use ethabi::token::Tokenizer;
 
-#[derive(Serialize, Deserialize, Debug)]
+use crate::contracts::tools::method;
+lazy_static! {
+    static ref NEW_GROUP: u32 = method::encode_to_u32(b"newGroup(address,bytes32,address[])");
+    static ref DELETE_GROUP: u32 = method::encode_to_u32(b"deleteGroup(address,address)");
+    static ref UPDATE_GROUP_NAME: u32 =
+        method::encode_to_u32(b"updateGroupName(address,address,bytes32)");
+    static ref ADD_ACCOUNTS: u32 = method::encode_to_u32(b"addAccounts(address,address,address[])");
+    static ref DELETE_ACCOUNTS: u32 =
+        method::encode_to_u32(b"deleteAccounts(address,address,address[])");
+    static ref CHECK_SCOPE: u32 = method::encode_to_u32(b"checkScope(address,address)");
+    static ref QUERY_GROUPS: u32 = method::encode_to_u32(b"queryGroups()");
+    static ref QUERY_NAME: u32 = method::encode_to_u32(b"queryName(address)");
+    static ref QUERY_ACCOUNTS: u32 = method::encode_to_u32(b"queryAccounts(address)");
+    static ref QUERY_CHILD: u32 = method::encode_to_u32(b"queryChild(address)");
+    static ref QUERY_CHILD_LEN: u32 = method::encode_to_u32(b"queryChildLength(address)");
+    static ref QUERY_PARENT: u32 = method::encode_to_u32(b"queryParent(address)");
+    static ref IN_GROUP: u32 = method::encode_to_u32(b"inGroup(address,address)");
+}
+
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct GroupStore {
     // key -> height, value -> json(GroupManager)
     contracts: BTreeMap<u64, Option<String>>,
-}
-
-impl Default for GroupStore {
-    fn default() -> GroupStore {
-        GroupStore {
-            contracts: BTreeMap::new(),
-        }
-    }
 }
 
 impl GroupStore {
@@ -49,7 +60,7 @@ impl GroupStore {
         let s = serde_json::to_string(&a).unwrap();
         let _ = contracts_db.insert(
             DataCategory::Contracts,
-            b"group-contract".to_vec(),
+            b"group".to_vec(),
             s.as_bytes().to_vec(),
         );
     }
@@ -59,7 +70,7 @@ impl GroupStore {
         contracts_db: Arc<ContractsDB>,
     ) -> (Option<GroupStore>, Option<GroupManager>) {
         if let Some(store) = contracts_db
-            .get(DataCategory::Contracts, b"group-contract".to_vec())
+            .get(DataCategory::Contracts, b"group".to_vec())
             .expect("get store error")
         {
             let contract_map: GroupStore = serde_json::from_slice(&store).unwrap();
@@ -122,45 +133,49 @@ impl<B: DB> Contract<B> for GroupStore {
                 let mut updated = false;
                 let result =
                     extract_to_u32(&params.input[..]).and_then(|signature| match signature {
-                        0xd7cd7209 => latest_group_manager.new_group(
+                        sig if sig == *NEW_GROUP => latest_group_manager.new_group(
                             params,
                             &mut updated,
                             context,
                             contracts_db.clone(),
                             state.clone(),
                         ),
-                        0xbaeb8cad => latest_group_manager.delete_group(
+                        sig if sig == *DELETE_GROUP => latest_group_manager.delete_group(
                             params,
                             &mut updated,
                             context,
                             contracts_db.clone(),
                         ),
-                        0x7eafcdb1 => latest_group_manager.update_group_name(
+                        sig if sig == *UPDATE_GROUP_NAME => latest_group_manager.update_group_name(
                             params,
                             &mut updated,
                             context,
                             contracts_db.clone(),
                         ),
-                        0x2c84e31f => latest_group_manager.add_accounts(
+                        sig if sig == *ADD_ACCOUNTS => latest_group_manager.add_accounts(
                             params,
                             &mut updated,
                             context,
                             contracts_db.clone(),
                         ),
-                        0xd86df333 => latest_group_manager.delete_accounts(
+                        sig if sig == *DELETE_ACCOUNTS => latest_group_manager.delete_accounts(
                             params,
                             &mut updated,
                             context,
                             contracts_db.clone(),
                         ),
-                        0xeadf4672 => latest_group_manager.check_scope(params),
-                        0x7321cc97 => latest_group_manager.query_groups(params),
-                        0xdff7eafe => latest_group_manager.query_name(params),
-                        0x223964bc => latest_group_manager.query_accounts(params),
-                        0x5bbfb698 => latest_group_manager.query_childs(params),
-                        0xa881ff41 => latest_group_manager.query_childs_len(params),
-                        0xce8b7d7f => latest_group_manager.query_parent(params),
-                        0x1b151dd7 => latest_group_manager.in_group(params),
+                        sig if sig == *CHECK_SCOPE => latest_group_manager.check_scope(params),
+                        sig if sig == *QUERY_GROUPS => latest_group_manager.query_groups(params),
+                        sig if sig == *QUERY_NAME => latest_group_manager.query_name(params),
+                        sig if sig == *QUERY_ACCOUNTS => {
+                            latest_group_manager.query_accounts(params)
+                        }
+                        sig if sig == *QUERY_CHILD => latest_group_manager.query_childs(params),
+                        sig if sig == *QUERY_CHILD_LEN => {
+                            latest_group_manager.query_childs_len(params)
+                        }
+                        sig if sig == *QUERY_PARENT => latest_group_manager.query_parent(params),
+                        sig if sig == *IN_GROUP => latest_group_manager.in_group(params),
                         _ => panic!("Invalid function signature {} ", signature),
                     });
 
@@ -185,13 +200,13 @@ impl<B: DB> Contract<B> for GroupStore {
                     let map_str = serde_json::to_string(&contract_map).unwrap();
                     let _ = contracts_db.insert(
                         DataCategory::Contracts,
-                        b"group-contract".to_vec(),
+                        b"group".to_vec(),
                         map_str.as_bytes().to_vec(),
                     );
 
                     // debug information, can be ommited
                     // let bin_map = contracts_db
-                    //     .get(DataCategory::Contracts, b"group-contract".to_vec())
+                    //     .get(DataCategory::Contracts, b"group".to_vec())
                     //     .unwrap();
                     // let str = String::from_utf8(bin_map.unwrap()).unwrap();
                     // let contracts: GroupStore = serde_json::from_str(&str).unwrap();
@@ -227,10 +242,7 @@ impl GroupManager {
         _contracts_db: Arc<ContractsDB>,
         state: Arc<RefCell<State<B>>>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!(
-            "System contract - group - new group, input {:?}",
-            params.input
-        );
+        trace!("Group contract: new group");
 
         let tokens = vec![
             ParamType::Address,
@@ -308,10 +320,7 @@ impl GroupManager {
         _context: &Context,
         _contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!(
-            "System contract - group - delete_group, input {:?}",
-            params.input
-        );
+        trace!("Group contract: delete_group");
 
         let origin_address = Address::from(&params.input[16..36]);
         let target_address = Address::from(&params.input[48..68]);
@@ -340,10 +349,7 @@ impl GroupManager {
         _context: &Context,
         _contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!(
-            "System contract - group - update_group_name, input {:?}",
-            params.input
-        );
+        trace!("Group contract: update_group_name");
         // todo check these params
         let origin_address = Address::from(&params.input[16..36]);
         let target_address = Address::from(&params.input[48..68]);
@@ -376,10 +382,7 @@ impl GroupManager {
         _context: &Context,
         _contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!(
-            "System contract - group - add_accounts, input {:?}",
-            params.input
-        );
+        trace!("Group contract: add_accounts");
 
         // decode params
         let tokens = vec![
@@ -431,10 +434,7 @@ impl GroupManager {
         _context: &Context,
         _contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!(
-            "System contract - group - delete_accounts, input {:?}",
-            params.input
-        );
+        trace!("Group contract: delete_accounts");
 
         let tokens = vec![
             ParamType::Address,
@@ -483,10 +483,7 @@ impl GroupManager {
         &mut self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!(
-            "System contract - group - query_groups, input {:?}",
-            params.input
-        );
+        trace!("Group contract: query_groups");
 
         let mut returned_groups = Vec::new();
         for g in self.groups.keys() {
@@ -507,15 +504,12 @@ impl GroupManager {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - group  - query_name");
+        trace!("Group contract: query_name");
         let group_address = Address::from(&params.input[16..36]);
-        trace!("group address in query_name: {}", group_address.lower_hex());
         if let Some(group) = self.groups.get(&group_address) {
             let name = group.query_name();
-            trace!("group name {:?}", name);
             let res =
                 LenientTokenizer::tokenize(&ParamType::FixedBytes(32), &clean_0x(&name)).unwrap();
-            trace!("group name bin {:?}", res);
             return Ok(InterpreterResult::Normal(
                 res.clone().to_fixed_bytes().unwrap(),
                 params.gas_limit,
@@ -534,10 +528,9 @@ impl GroupManager {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - group  - query_accounts");
+        trace!("Group contract: query_accounts");
         let group_address = Address::from(&params.input[16..36]);
 
-        trace!("group address in query_name: {}", group_address.lower_hex());
         if let Some(group) = self.groups.get(&group_address) {
             let accounts = group.query_accounts();
 
@@ -565,9 +558,8 @@ impl GroupManager {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - group  - query_childs");
+        trace!("Group contract: query_childs");
         let group_address = Address::from(&params.input[16..36]);
-        trace!("group address in query_name: {}", group_address.lower_hex());
         if let Some(group) = self.groups.get(&group_address) {
             let childs = group.query_childs();
 
@@ -595,9 +587,8 @@ impl GroupManager {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - group  - queryChildLength");
+        trace!("Group contract: queryChildLength");
         let group_address = Address::from(&params.input[16..36]);
-        trace!("group address in query_name: {}", group_address.lower_hex());
         if let Some(group) = self.groups.get(&group_address) {
             let len = group.query_childs().len();
 
@@ -619,9 +610,8 @@ impl GroupManager {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - group  - queryParent");
+        trace!("Group contract: query_parent");
         let group_address = Address::from(&params.input[16..36]);
-        trace!("group address in query_name: {}", group_address.lower_hex());
         if let Some(group) = self.groups.get(&group_address) {
             let parent = group.query_parent();
 
@@ -640,12 +630,10 @@ impl GroupManager {
     }
 
     pub fn in_group(&self, params: &InterpreterParams) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - group  - inGroup");
+        trace!("Group contract: in_group");
 
         let group_address = Address::from(&params.input[16..36]);
         let account_address = Address::from(&params.input[48..68]);
-        trace!("group address = {}", group_address.lower_hex());
-        trace!("account address = {}", account_address.lower_hex());
 
         if let Some(group) = self.groups.get(&group_address) {
             if group.in_group(account_address) {
@@ -668,12 +656,10 @@ impl GroupManager {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - group  - inGroup");
+        trace!("Group contract: check_scope");
 
         let origin_address = Address::from(&params.input[16..36]);
         let target_address = Address::from(&params.input[48..68]);
-        trace!("origin address = {}", origin_address.lower_hex());
-        trace!("target address = {}", target_address.lower_hex());
 
         if self.check_scope_interval(origin_address, target_address) {
             return Ok(InterpreterResult::Normal(

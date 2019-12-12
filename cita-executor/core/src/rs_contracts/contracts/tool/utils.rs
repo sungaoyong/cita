@@ -30,24 +30,6 @@ pub fn clean_0x(s: &str) -> &str {
     }
 }
 
-// keys: ordered list
-// pub fn get_latest_key(target: u64, keys: Vec<&u64>) -> u64 {
-//     if target == 0 {
-//         return 0;
-//     }
-
-//     for i in 0..keys.len() {
-//         if *keys[i] == target {
-//             return *keys[i];
-//         } else if *keys[i] > target {
-//             return *keys[i - 1];
-//         } else if i == keys.len() - 1 {
-//             return *keys[i];
-//         }
-//         continue;
-//     }
-//     0
-// }
 pub fn get_latest_key(target: u64, keys: Vec<&u64>) -> u64 {
     if target == 0 {
         return 0;

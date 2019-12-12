@@ -1,12 +1,12 @@
-use super::check;
-use super::utils::{extract_to_u32, get_latest_key, h256_to_bool};
+use crate::rs_contracts::contracts::tool::check;
+use crate::rs_contracts::contracts::tool::{extract_to_u32, get_latest_key, h256_to_bool};
 
 use cita_types::H256;
 use cita_vm::evm::{InterpreterParams, InterpreterResult};
 use common_types::context::Context;
 use common_types::errors::ContractError;
 
-use super::contract::Contract;
+use crate::rs_contracts::contracts::Contract;
 use crate::rs_contracts::storage::db_contracts::ContractsDB;
 use crate::rs_contracts::storage::db_trait::DataBase;
 use crate::rs_contracts::storage::db_trait::DataCategory;
@@ -18,17 +18,15 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use tiny_keccak::keccak256;
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct EmergContract {
-    contracts: BTreeMap<u64, Option<String>>,
+use crate::contracts::tools::method;
+lazy_static! {
+    static ref SET_STATE: u32 = method::encode_to_u32(b"setState(bool)");
+    static ref GET_STATE: u32 = method::encode_to_u32(b"state()");
 }
 
-impl Default for EmergContract {
-    fn default() -> Self {
-        EmergContract {
-            contracts: BTreeMap::new(),
-        }
-    }
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct EmergContract {
+    contracts: BTreeMap<u64, Option<String>>,
 }
 
 impl EmergContract {
@@ -38,7 +36,7 @@ impl EmergContract {
         let s = serde_json::to_string(&a).unwrap();
         let _ = contracts_db.insert(
             DataCategory::Contracts,
-            b"emerg-contract".to_vec(),
+            b"emerg".to_vec(),
             s.as_bytes().to_vec(),
         );
     }
@@ -49,7 +47,7 @@ impl EmergContract {
         contracts_db: Arc<ContractsDB>,
     ) -> (Option<EmergContract>, Option<EmergencyIntervention>) {
         if let Some(store) = contracts_db
-            .get(DataCategory::Contracts, b"emerg-contract".to_vec())
+            .get(DataCategory::Contracts, b"emerg".to_vec())
             .expect("get store error")
         {
             let contract_map: EmergContract = serde_json::from_slice(&store).unwrap();
@@ -94,8 +92,8 @@ impl<B: DB> Contract<B> for EmergContract {
                 let mut updated = false;
                 let result =
                     extract_to_u32(&params.input[..]).and_then(|signature| match signature {
-                        0xc19d93fb => latest_item.get_state(),
-                        0xac9f0222 => latest_item.set_state(
+                        sig if sig == *GET_STATE => latest_item.get_state(),
+                        sig if sig == *SET_STATE => latest_item.set_state(
                             params,
                             &mut updated,
                             context,
@@ -125,17 +123,9 @@ impl<B: DB> Contract<B> for EmergContract {
                     let map_str = serde_json::to_string(&contract_map).unwrap();
                     let _ = contracts_db.insert(
                         DataCategory::Contracts,
-                        b"emerg-contract".to_vec(),
+                        b"emerg".to_vec(),
                         map_str.as_bytes().to_vec(),
                     );
-
-                    // debug information, can be ommited
-                    // let bin_map = contracts_db
-                    //     .get(DataCategory::Contracts, b"emerg-contract".to_vec())
-                    //     .unwrap();
-                    // let str = String::from_utf8(bin_map.unwrap()).unwrap();
-                    // let contracts: EmergContract = serde_json::from_str(&str).unwrap();
-                    // trace!("System contract emerg {:?} after update.", contracts);
                 }
                 return result;
             }
@@ -144,15 +134,9 @@ impl<B: DB> Contract<B> for EmergContract {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct EmergencyIntervention {
     state: bool,
-}
-
-impl Default for EmergencyIntervention {
-    fn default() -> Self {
-        EmergencyIntervention { state: false }
-    }
 }
 
 impl EmergencyIntervention {
@@ -167,9 +151,8 @@ impl EmergencyIntervention {
         context: &Context,
         contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - emerg - set_state");
+        trace!("Emerg: set_state");
         let param_state = h256_to_bool(H256::from(&params.input[4..]));
-        trace!("param_state {:?}, self.state {:?}", param_state, self.state);
         // Note: Only admin can change quota price
         if check::only_admin(params, context, contracts_db.clone()).expect("Not admin")
             && param_state != self.state
@@ -188,7 +171,7 @@ impl EmergencyIntervention {
     }
 
     pub fn get_state(&self) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - emerg - get_state");
+        trace!("Emerg: get_state");
         if self.state {
             return Ok(InterpreterResult::Normal(
                 H256::from(1).0.to_vec(),

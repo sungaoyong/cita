@@ -1,12 +1,12 @@
-use super::check;
-use super::utils::{extract_to_u32, get_latest_key};
+use crate::rs_contracts::contracts::tool::check;
+use crate::rs_contracts::contracts::tool::{extract_to_u32, get_latest_key};
 
 use cita_types::{Address, H256, U256};
 use cita_vm::evm::{InterpreterParams, InterpreterResult};
 use common_types::context::Context;
 use common_types::errors::ContractError;
 
-use super::contract::Contract;
+use crate::rs_contracts::contracts::Contract;
 use crate::rs_contracts::storage::db_contracts::ContractsDB;
 use crate::rs_contracts::storage::db_trait::DataBase;
 use crate::rs_contracts::storage::db_trait::DataCategory;
@@ -19,17 +19,20 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use tiny_keccak::keccak256;
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct NodeStore {
-    contracts: BTreeMap<u64, Option<String>>,
+use crate::contracts::tools::method;
+lazy_static! {
+    static ref SET_STAKE: u32 = method::encode_to_u32(b"setStake(address,uint64)");
+    static ref APPROVE_NODE: u32 = method::encode_to_u32(b"approveNode(address)");
+    static ref DELETE_NODE: u32 = method::encode_to_u32(b"deleteNode(address)");
+    static ref LIST_NODE: u32 = method::encode_to_u32(b"listNode()");
+    static ref LIST_STAKE: u32 = method::encode_to_u32(b"listStake()");
+    static ref GET_STATUS: u32 = method::encode_to_u32(b"getStatus(address)");
+    static ref STAKE_PERMILLAGE: u32 = method::encode_to_u32(b"stakePermillage(address)");
 }
 
-impl Default for NodeStore {
-    fn default() -> Self {
-        NodeStore {
-            contracts: BTreeMap::new(),
-        }
-    }
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct NodeStore {
+    contracts: BTreeMap<u64, Option<String>>,
 }
 
 impl NodeStore {
@@ -39,7 +42,7 @@ impl NodeStore {
         let s = serde_json::to_string(&a).unwrap();
         let _ = contracts_db.insert(
             DataCategory::Contracts,
-            b"nodes-contract".to_vec(),
+            b"nodes".to_vec(),
             s.as_bytes().to_vec(),
         );
     }
@@ -50,7 +53,7 @@ impl NodeStore {
         contracts_db: Arc<ContractsDB>,
     ) -> (Option<NodeStore>, Option<NodeManager>) {
         if let Some(store) = contracts_db
-            .get(DataCategory::Contracts, b"nodes-contract".to_vec())
+            .get(DataCategory::Contracts, b"nodes".to_vec())
             .expect("get store error")
         {
             let contract_map: NodeStore = serde_json::from_slice(&store).unwrap();
@@ -94,28 +97,28 @@ impl<B: DB> Contract<B> for NodeStore {
                 let mut updated = false;
                 let result =
                     extract_to_u32(&params.input[..]).and_then(|signature| match signature {
-                        0x51222d50 => latest_item.set_stake(
+                        sig if sig == *SET_STAKE => latest_item.set_stake(
                             params,
                             &mut updated,
                             context,
                             contracts_db.clone(),
                         ),
-                        0xdd4c97a0 => latest_item.approve_node(
+                        sig if sig == *APPROVE_NODE => latest_item.approve_node(
                             params,
                             &mut updated,
                             context,
                             contracts_db.clone(),
                         ),
-                        0x2d4ede93 => latest_item.delete_node(
+                        sig if sig == *DELETE_NODE => latest_item.delete_node(
                             params,
                             &mut updated,
                             context,
                             contracts_db.clone(),
                         ),
-                        0x609df32f => latest_item.list_nodes(params),
-                        0x6ed3876d => latest_item.list_stake(params),
-                        0x30ccebb5 => latest_item.get_status(params),
-                        0x0c829315 => latest_item.stake_permillage(params),
+                        sig if sig == *LIST_NODE => latest_item.list_nodes(params),
+                        sig if sig == *LIST_STAKE => latest_item.list_stake(params),
+                        sig if sig == *GET_STATUS => latest_item.get_status(params),
+                        sig if sig == *STAKE_PERMILLAGE => latest_item.stake_permillage(params),
                         _ => panic!("Invalid function signature".to_owned()),
                     });
 
@@ -140,17 +143,9 @@ impl<B: DB> Contract<B> for NodeStore {
                     let map_str = serde_json::to_string(&contract_map).unwrap();
                     let _ = contracts_db.insert(
                         DataCategory::Contracts,
-                        b"nodes-contract".to_vec(),
+                        b"nodes".to_vec(),
                         map_str.as_bytes().to_vec(),
                     );
-
-                    // debug information, can be ommited
-                    // let bin_map = contracts_db
-                    //     .get(DataCategory::Contracts, b"nodes-contract".to_vec())
-                    //     .unwrap();
-                    // let str = String::from_utf8(bin_map.unwrap()).unwrap();
-                    // let contracts: NodeStore = serde_json::from_str(&str).unwrap();
-                    // trace!("System contract nodes {:?} after update.", contracts);
                 }
                 return result;
             }
@@ -190,7 +185,7 @@ impl NodeManager {
         context: &Context,
         contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("Node contract set_stake, params {:?}", params.input);
+        trace!("Node contract: set_stake");
         if check::only_admin(params, context, contracts_db.clone()).expect("Not admin") {
             let param_address = Address::from_slice(&params.input[16..36]);
             let param_stake = U256::from(&params.input[36..]);
@@ -219,7 +214,7 @@ impl NodeManager {
         context: &Context,
         contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("Node contract approve_node, params {:?}", params.input);
+        trace!("Node contract: approve_node");
         if check::only_admin(params, context, contracts_db.clone()).expect("Not admin") {
             let param_address = Address::from_slice(&params.input[16..36]);
             if !*self.status.get(&param_address).unwrap_or(&false) {
@@ -247,7 +242,7 @@ impl NodeManager {
         context: &Context,
         contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("Node contract delete_node, params {:?}", params.input);
+        trace!("Node contract: delete_node");
         if check::only_admin(params, context, contracts_db.clone()).expect("Not admin") {
             let param_address = Address::from_slice(&params.input[16..36]);
             if *self.status.get(&param_address).unwrap_or(&false) {
@@ -276,7 +271,7 @@ impl NodeManager {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("Node contract list_nodes, params {:?}", params.input);
+        trace!("Node contract: list_nodes");
         let nodes = self
             .nodes
             .iter()
@@ -296,7 +291,7 @@ impl NodeManager {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("Node contract list_stake, params {:?}", params.input);
+        trace!("Node contract: list_stake");
         let mut tokens = Vec::new();
         let mut stakes = Vec::new();
         for (_key, value) in self.stakes.iter() {
@@ -315,7 +310,7 @@ impl NodeManager {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("Node contract get_status, params {:?}", params.input);
+        trace!("Node contract: get_status");
         let param_address = Address::from_slice(&params.input[16..36]);
         if *self.status.get(&param_address).unwrap_or(&false) {
             return Ok(InterpreterResult::Normal(
@@ -337,7 +332,7 @@ impl NodeManager {
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
         // Todo only in charge mode
-        trace!("Node contract stake_permillage, params {:?}", params.input);
+        trace!("Node contract: stake_permillage");
         let param_address = Address::from_slice(&params.input[16..36]);
         let node_stakes = self.stakes.get(&param_address).unwrap();
 

@@ -1,17 +1,17 @@
-use super::check;
-use super::utils::{extract_to_u32, get_latest_key};
+use crate::rs_contracts::contracts::tool::check;
+use crate::rs_contracts::contracts::tool::{extract_to_u32, get_latest_key};
 
 use cita_types::{Address, H256, U256};
 use cita_vm::evm::{InterpreterParams, InterpreterResult};
 use common_types::context::Context;
 use common_types::errors::ContractError;
 
-use super::contract::Contract;
+use crate::rs_contracts::contracts::Contract;
 use crate::rs_contracts::storage::db_contracts::ContractsDB;
 use crate::rs_contracts::storage::db_trait::DataBase;
 use crate::rs_contracts::storage::db_trait::DataCategory;
 
-use crate::rs_contracts::contracts::utils::encode_string;
+use crate::rs_contracts::contracts::tool::utils::encode_string;
 use cita_trie::DB;
 use cita_vm::state::State;
 use ethabi::param_type::ParamType;
@@ -21,17 +21,34 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use tiny_keccak::keccak256;
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct SystemContract {
-    contracts: BTreeMap<u64, Option<String>>,
+use crate::contracts::tools::method;
+lazy_static! {
+    static ref SET_OPERATOR: u32 = method::encode_to_u32(b"setOperator(string)");
+    static ref SET_WEBSITE: u32 = method::encode_to_u32(b"setWebsite(string)");
+    static ref SET_CHAIN_NAME: u32 = method::encode_to_u32(b"setChainName(string)");
+    static ref SET_BLOCK_INTERVAL: u32 = method::encode_to_u32(b"setBlockInterval(uint64)");
+    static ref GET_DELAY_BLOCK_NUMBER: u32 = method::encode_to_u32(b"getDelayBlockNumber()");
+    static ref GET_PERM_CHECK: u32 = method::encode_to_u32(b"getPermissionCheck()");
+    static ref GET_SEND_PERM_CHECK: u32 = method::encode_to_u32(b"getSendTxPermissionCheck()");
+    static ref GET_CREATE_PERM_CHECK: u32 =
+        method::encode_to_u32(b"getCreateContractPermissionCheck()");
+    static ref GET_QUOTA_CHECK: u32 = method::encode_to_u32(b"getQuotaCheck()");
+    static ref GET_FEE_BACH_CHECK: u32 = method::encode_to_u32(b"getFeeBackPlatformCheck()");
+    static ref GET_CHAIN_OWNER: u32 = method::encode_to_u32(b"getChainOwner()");
+    static ref GET_CHAIN_NAME: u32 = method::encode_to_u32(b"getChainName()");
+    static ref GET_CHAIN_ID: u32 = method::encode_to_u32(b"getChainId()");
+    static ref GET_CHAIN_ID_V1: u32 = method::encode_to_u32(b"getChainIdV1()");
+    static ref GET_OPERATOR: u32 = method::encode_to_u32(b"getOperator()");
+    static ref GET_WEBSITE: u32 = method::encode_to_u32(b"getWebsite()");
+    static ref GET_BLOCK_INTERVAL: u32 = method::encode_to_u32(b"getBlockInterval()");
+    static ref GET_ECONOMICAL_MODEL: u32 = method::encode_to_u32(b"getEconomicalModel()");
+    static ref GET_TOKEN_INFO: u32 = method::encode_to_u32(b"getTokenInfo()");
+    static ref GET_AUTO_EXEC: u32 = method::encode_to_u32(b"getAutoExec()");
 }
 
-impl Default for SystemContract {
-    fn default() -> Self {
-        SystemContract {
-            contracts: BTreeMap::new(),
-        }
-    }
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct SystemContract {
+    contracts: BTreeMap<u64, Option<String>>,
 }
 
 impl SystemContract {
@@ -42,7 +59,7 @@ impl SystemContract {
         let s = serde_json::to_string(&a).unwrap();
         let _ = contracts_db.insert(
             DataCategory::Contracts,
-            b"system-contract".to_vec(),
+            b"sys".to_vec(),
             s.as_bytes().to_vec(),
         );
     }
@@ -51,9 +68,9 @@ impl SystemContract {
         &self,
         current_height: u64,
         contracts_db: Arc<ContractsDB>,
-    ) -> (Option<SystemContract>, Option<Sysconfig>) {
+    ) -> (Option<SystemContract>, Option<SysConfig>) {
         if let Some(store) = contracts_db
-            .get(DataCategory::Contracts, b"system-contract".to_vec())
+            .get(DataCategory::Contracts, b"sys".to_vec())
             .expect("get store error")
         {
             let contract_map: SystemContract = serde_json::from_slice(&store).unwrap();
@@ -71,7 +88,7 @@ impl SystemContract {
                 .get(&(current_height as u64))
                 .or(contract_map.contracts.get(&latest_key))
                 .expect("get concrete contract error");
-            let latest_item: Sysconfig = serde_json::from_str(&(*bin).clone().unwrap()).unwrap();
+            let latest_item: SysConfig = serde_json::from_str(&(*bin).clone().unwrap()).unwrap();
             trace!("Contract latest item {:?}", latest_item);
 
             return (Some(contract_map), Some(latest_item));
@@ -101,52 +118,56 @@ impl<B: DB> Contract<B> for SystemContract {
                 let mut updated = false;
                 let result =
                     extract_to_u32(&params.input[..]).and_then(|signature| match signature {
-                        0x6fbf656a => latest_item.set_operator(
+                        sig if sig == *SET_OPERATOR => latest_item.set_operator(
                             params,
                             &mut updated,
                             context,
                             contracts_db.clone(),
                         ),
-                        0xf87f44b9 => latest_item.set_website(
+                        sig if sig == *SET_WEBSITE => latest_item.set_website(
                             params,
                             &mut updated,
                             context,
                             contracts_db.clone(),
                         ),
-                        0xc0c41f22 => latest_item.set_chain_name(
+                        sig if sig == *SET_CHAIN_NAME => latest_item.set_chain_name(
                             params,
                             &mut updated,
                             context,
                             contracts_db.clone(),
                         ),
-                        0xde7aa05d => latest_item.set_block_interval(
+                        sig if sig == *SET_BLOCK_INTERVAL => latest_item.set_block_interval(
                             params,
                             &mut updated,
                             context,
                             contracts_db.clone(),
                         ),
-                        // 0x28ccf1fd => latest_item.update_to_chain_id_v1(
-                        //     params,
-                        //     &mut updated,
-                        //     context,
-                        //     contracts_db.clone(),
-                        // ),
-                        0x8ec1aaed => latest_item.get_delay_block_number(params),
-                        0xdd12b51f => latest_item.get_permission_check(params),
-                        0x3fd24419 => latest_item.get_send_tx_permission_check(params),
-                        0x6f25ac3f => latest_item.get_create_contract_permission_check(params),
-                        0xb4a0e24c => latest_item.get_quota_check(params),
-                        0x984dc34b => latest_item.get_fee_back_platform_check(params),
-                        0xe19709e0 => latest_item.get_chain_owner(params),
-                        0xd722b0bc => latest_item.get_chain_name(params),
-                        0x3408e470 => latest_item.get_chain_id(params),
-                        0x60952274 => latest_item.get_chain_id_v1(params),
-                        0xe7f43c68 => latest_item.get_operator(params),
-                        0xdf51aa49 => latest_item.get_website(params),
-                        0xd5cd402c => latest_item.get_block_interval(params),
-                        0x63ffec6e => latest_item.get_economical_model(params),
-                        0xabb1dc44 => latest_item.get_token_info(params),
-                        0xf337a9d6 => latest_item.get_auto_exec(params),
+                        sig if sig == *GET_DELAY_BLOCK_NUMBER => {
+                            latest_item.get_delay_block_number(params)
+                        }
+                        sig if sig == *GET_PERM_CHECK => latest_item.get_permission_check(params),
+                        sig if sig == *GET_SEND_PERM_CHECK => {
+                            latest_item.get_send_tx_permission_check(params)
+                        }
+                        sig if sig == *GET_CREATE_PERM_CHECK => {
+                            latest_item.get_create_contract_permission_check(params)
+                        }
+                        sig if sig == *GET_QUOTA_CHECK => latest_item.get_quota_check(params),
+                        sig if sig == *GET_FEE_BACH_CHECK => {
+                            latest_item.get_fee_back_platform_check(params)
+                        }
+                        sig if sig == *GET_CHAIN_OWNER => latest_item.get_chain_owner(params),
+                        sig if sig == *GET_CHAIN_NAME => latest_item.get_chain_name(params),
+                        sig if sig == *GET_CHAIN_ID => latest_item.get_chain_id(params),
+                        sig if sig == *GET_CHAIN_ID_V1 => latest_item.get_chain_id_v1(params),
+                        sig if sig == *GET_OPERATOR => latest_item.get_operator(params),
+                        sig if sig == *GET_WEBSITE => latest_item.get_website(params),
+                        sig if sig == *GET_BLOCK_INTERVAL => latest_item.get_block_interval(params),
+                        sig if sig == *GET_ECONOMICAL_MODEL => {
+                            latest_item.get_economical_model(params)
+                        }
+                        sig if sig == *GET_TOKEN_INFO => latest_item.get_token_info(params),
+                        sig if sig == *GET_AUTO_EXEC => latest_item.get_auto_exec(params),
                         _ => panic!("Invalid function signature".to_owned()),
                     });
 
@@ -171,13 +192,13 @@ impl<B: DB> Contract<B> for SystemContract {
                     let map_str = serde_json::to_string(&contract_map).unwrap();
                     let _ = contracts_db.insert(
                         DataCategory::Contracts,
-                        b"system-contract".to_vec(),
+                        b"sys".to_vec(),
                         map_str.as_bytes().to_vec(),
                     );
 
                     // debug information, can be ommited
                     // let bin_map = contracts_db
-                    //     .get(DataCategory::Contracts, b"system-contract".to_vec())
+                    //     .get(DataCategory::Contracts, b"sys".to_vec())
                     //     .unwrap();
                     // let str = String::from_utf8(bin_map.unwrap()).unwrap();
                     // let contracts: SystemContract = serde_json::from_str(&str).unwrap();
@@ -191,7 +212,7 @@ impl<B: DB> Contract<B> for SystemContract {
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
-pub struct Sysconfig {
+pub struct SysConfig {
     delay_block_number: u64,
     check_permission: bool,
     check_send_tx_permission: bool,
@@ -211,7 +232,7 @@ pub struct Sysconfig {
     auto_exec: bool,
 }
 
-impl Sysconfig {
+impl SysConfig {
     pub fn new(
         delay_block_number: u64,
         check_permission: bool,
@@ -231,7 +252,7 @@ impl Sysconfig {
         avatar: String,
         auto_exec: bool,
     ) -> Self {
-        Sysconfig {
+        SysConfig {
             delay_block_number,
             check_permission,
             check_send_tx_permission,
@@ -259,10 +280,7 @@ impl Sysconfig {
         context: &Context,
         contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!(
-            "System contract system set_chain_name, params {:?}",
-            params.input
-        );
+        trace!("System contract: set_chain_name");
         if check::only_admin(params, context, contracts_db.clone()).expect("Not admin") {
             if let Ok(param) = ethabi::decode(&[ParamType::String], &params.input[4..]) {
                 let param_chain_name = match &param[0] {
@@ -291,10 +309,7 @@ impl Sysconfig {
         context: &Context,
         contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!(
-            "System contract - system - set_operator, params {:?}",
-            params.input
-        );
+        trace!("System contract: set_operator");
         if check::only_admin(params, context, contracts_db.clone()).expect("Not admin") {
             if let Ok(param) = ethabi::decode(&[ParamType::String], &params.input[4..]) {
                 let param_operator = match &param[0] {
@@ -322,10 +337,7 @@ impl Sysconfig {
         context: &Context,
         contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!(
-            "System contract - system - set_website, params {:?}",
-            params.input
-        );
+        trace!("System contract: set_website");
         if check::only_admin(params, context, contracts_db.clone()).expect("Not admin") {
             if let Ok(param) = ethabi::decode(&[ParamType::String], &params.input[4..]) {
                 let param_website = match &param[0] {
@@ -353,10 +365,7 @@ impl Sysconfig {
         context: &Context,
         contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!(
-            "System contract - system - set_block_interval, params {:?}",
-            params.input
-        );
+        trace!("System contract: set_block_interval");
         if check::only_admin(params, context, contracts_db.clone()).expect("Not admin") {
             let param = U256::from(&params.input[4..]);
             self.block_interval = param.as_u64();
@@ -372,25 +381,11 @@ impl Sysconfig {
         ))
     }
 
-    // pub fn update_to_chain_id_v1(
-    //     &mut self,
-    //     params: &InterpreterParams,
-    //     changed: &mut bool,
-    //     context: &Context,
-    //     contracts_db: Arc<ContractsDB>,
-    // ) -> Result<InterpreterResult, ContractError> {
-    //     trace!(
-    //         "System contract - system - update_to_chain_id_v1, params {:?}",
-    //         params.input
-    //     );
-    //     Err(ContractError::Internal("System contract execute error".to_owned()))
-    // }
-
     pub fn get_permission_check(
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - system - get_permission_check");
+        trace!("System contract: get_permission_check");
         if self.check_permission {
             return Ok(InterpreterResult::Normal(
                 H256::from(1).0.to_vec(),
@@ -410,7 +405,7 @@ impl Sysconfig {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - system - get_permission_check");
+        trace!("System contract: get_permission_check");
         if self.check_send_tx_permission {
             return Ok(InterpreterResult::Normal(
                 H256::from(1).0.to_vec(),
@@ -430,7 +425,7 @@ impl Sysconfig {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - system - get_permission_check");
+        trace!("System contract: get_permission_check");
         if self.check_create_contract_permission {
             return Ok(InterpreterResult::Normal(
                 H256::from(1).0.to_vec(),
@@ -450,7 +445,7 @@ impl Sysconfig {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - system - get_quota_check");
+        trace!("System contract: get_quota_check");
         if self.check_quota {
             return Ok(InterpreterResult::Normal(
                 H256::from(1).0.to_vec(),
@@ -470,7 +465,7 @@ impl Sysconfig {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - system - get_fee_back_platform_check");
+        trace!("System contract: get_fee_back_platform_check");
         if self.check_feeback_platform {
             return Ok(InterpreterResult::Normal(
                 H256::from(1).0.to_vec(),
@@ -490,7 +485,7 @@ impl Sysconfig {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - system - get_chain_owner");
+        trace!("System contract: get_chain_owner");
         return Ok(InterpreterResult::Normal(
             H256::from(self.chain_owner).0.to_vec(),
             params.gas_limit,
@@ -502,10 +497,8 @@ impl Sysconfig {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - system - get_chain_name");
-        trace!("chain owner is {:?}", self.chain_owner);
+        trace!("System contract: get_chain_name");
         let bin = hex::decode(self.chain_name.clone()).unwrap();
-        trace!("bin is {:?}", bin);
         return Ok(InterpreterResult::Normal(bin, params.gas_limit, vec![]));
     }
 
@@ -513,8 +506,8 @@ impl Sysconfig {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - system - get_chain_id");
-        let res = U256::from(self.chain_id);
+        trace!("System contract: get_chain_id");
+        let res = U256::from(0);
         return Ok(InterpreterResult::Normal(
             H256::from(res).to_vec(),
             params.gas_limit,
@@ -526,7 +519,7 @@ impl Sysconfig {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - system - get_chain_id_v1");
+        trace!("System contract: get_chain_id_v1");
         let res = U256::from(self.chain_id);
         return Ok(InterpreterResult::Normal(
             H256::from(res).to_vec(),
@@ -539,10 +532,8 @@ impl Sysconfig {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - system - get_operator");
-        trace!("chain owner is {:?}", self.operator);
+        trace!("System contract: get_operator");
         let bin = hex::decode(self.operator.clone()).unwrap();
-        trace!("bin is {:?}", bin);
         return Ok(InterpreterResult::Normal(bin, params.gas_limit, vec![]));
     }
 
@@ -550,10 +541,8 @@ impl Sysconfig {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - system - get_website");
-        trace!("chain owner is {:?}", self.website);
+        trace!("System contract: get_website");
         let bin = hex::decode(self.website.clone()).unwrap();
-        trace!("bin is {:?}", bin);
         return Ok(InterpreterResult::Normal(bin, params.gas_limit, vec![]));
     }
 
@@ -561,7 +550,7 @@ impl Sysconfig {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - system - get_block_interval");
+        trace!("System contract: get_block_interval");
         let res = U256::from(self.block_interval);
         return Ok(InterpreterResult::Normal(
             H256::from(res).to_vec(),
@@ -574,7 +563,7 @@ impl Sysconfig {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - system - get_economical_model");
+        trace!("System contract: get_economical_model");
         let res = U256::from(self.economical_model);
         return Ok(InterpreterResult::Normal(
             H256::from(res).to_vec(),
@@ -587,7 +576,7 @@ impl Sysconfig {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - system - ");
+        trace!("System contract: get_token_info");
         let mut tokens = Vec::new();
         tokens.push(Token::String(self.name.clone()));
         tokens.push(Token::String(self.symbol.clone()));
@@ -605,7 +594,7 @@ impl Sysconfig {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - system - get_auto_exec");
+        trace!("System contract: get_auto_exec");
         if self.auto_exec {
             return Ok(InterpreterResult::Normal(
                 H256::from(1).0.to_vec(),
@@ -625,7 +614,7 @@ impl Sysconfig {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - system - get_delay_block_number");
+        trace!("System contract: get_delay_block_number");
         let res = U256::from(self.delay_block_number);
         return Ok(InterpreterResult::Normal(
             H256::from(res).to_vec(),

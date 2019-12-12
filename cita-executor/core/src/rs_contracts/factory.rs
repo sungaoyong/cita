@@ -1,4 +1,4 @@
-use crate::rs_contracts::contracts::utils::is_permssion_contract;
+use crate::rs_contracts::contracts::tool::utils::is_permssion_contract;
 use cita_vm::evm::InterpreterParams;
 use cita_vm::evm::InterpreterResult;
 use common_types::errors::ContractError;
@@ -6,23 +6,16 @@ use common_types::reserved_addresses;
 
 use cita_types::Address;
 use common_types::context::Context;
-
 use std::sync::Arc;
 
-use crate::rs_contracts::contracts::admin::AdminContract;
-use crate::rs_contracts::contracts::auto_exec::AutoContract;
-use crate::rs_contracts::contracts::batch_tx::BatchTx;
 use crate::rs_contracts::contracts::contract::Contract;
-use crate::rs_contracts::contracts::emergency_intervention::EmergContract;
-use crate::rs_contracts::contracts::group::group_manager::GroupStore;
-use crate::rs_contracts::contracts::node_manager::NodeStore;
-use crate::rs_contracts::contracts::perm_manager::PermStore;
-use crate::rs_contracts::contracts::price::PriceContract;
-use crate::rs_contracts::contracts::quota_manager::QuotaContract;
-use crate::rs_contracts::contracts::role::role_manager::RoleStore;
-use crate::rs_contracts::contracts::sys_config::SystemContract;
-use crate::rs_contracts::contracts::version::VersionContract;
 use crate::rs_contracts::storage::db_contracts::ContractsDB;
+
+use crate::rs_contracts::contracts::sys::{
+    AdminContract, AutoContract, BatchTx, EmergContract, NodeStore, PriceContract, QuotaContract,
+    SystemContract, VersionContract,
+};
+use crate::rs_contracts::contracts::{group::GroupStore, perm::PermStore, role::RoleStore};
 
 use cita_trie::DB;
 use cita_vm::state::State;

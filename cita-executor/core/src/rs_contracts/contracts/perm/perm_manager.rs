@@ -1,15 +1,17 @@
-use super::check;
-use super::utils::{check_same_length, clean_0x, extract_to_u32, get_latest_key};
+use crate::rs_contracts::contracts::tool::{
+    check_same_length, clean_0x, extract_to_u32, get_latest_key,
+};
 
 use cita_types::{Address, H256};
 use cita_vm::evm::{InterpreterParams, InterpreterResult, Log};
 use common_types::context::Context;
 use common_types::errors::ContractError;
 
-use super::contract::Contract;
-use crate::rs_contracts::contracts::build_in_perm;
 use crate::rs_contracts::contracts::group::group_manager::GroupStore;
+use crate::rs_contracts::contracts::perm::build_in_perm;
 use crate::rs_contracts::contracts::perm::Permission;
+use crate::rs_contracts::contracts::tool::check;
+use crate::rs_contracts::contracts::Contract;
 use crate::rs_contracts::storage::db_contracts::ContractsDB;
 use crate::rs_contracts::storage::db_trait::DataBase;
 use crate::rs_contracts::storage::db_trait::DataCategory;
@@ -31,18 +33,36 @@ use common_types::reserved_addresses;
 use ethabi::token::LenientTokenizer;
 use ethabi::token::Tokenizer;
 
-#[derive(Serialize, Deserialize, Debug)]
+use crate::contracts::tools::method;
+lazy_static! {
+    static ref NEW_PERM: u32 = method::encode_to_u32(b"newPermission(bytes32,address[],bytes4[])");
+    static ref DEL_PERM: u32 = method::encode_to_u32(b"deletePermission(address)");
+    static ref UPDATE_PERM_NAME: u32 =
+        method::encode_to_u32(b"updatePermissionName(address,bytes32)");
+    static ref ADD_RESOURCES: u32 =
+        method::encode_to_u32(b"addResources(address,address[],bytes4[])");
+    static ref DEL_RESOURCES: u32 =
+        method::encode_to_u32(b"deleteResources(address,address[],bytes4[])");
+    static ref SET_AUTH: u32 = method::encode_to_u32(b"setAuthorization(address,address)");
+    static ref SET_AUTHS: u32 = method::encode_to_u32(b"setAuthorizations(address,address[])");
+    static ref CANCEL_AUTH: u32 = method::encode_to_u32(b"cancelAuthorization(address,address)");
+    static ref CANCEL_AUTHS: u32 =
+        method::encode_to_u32(b"cancelAuthorizations(address,address[])");
+    static ref CLEAR_AUTHS: u32 = method::encode_to_u32(b"clearAuthorization(address)");
+    static ref IN_PERMS: u32 = method::encode_to_u32(b"inPermission(address,address,bytes4)");
+    static ref QUERY_NAME: u32 = method::encode_to_u32(b"queryName(address)");
+    static ref QUERY_RESOURCE: u32 = method::encode_to_u32(b"queryResource(address)");
+    static ref CHECK_PERM: u32 = method::encode_to_u32(b"checkPermission(address,address)");
+    static ref CHECK_RESOURCE: u32 =
+        method::encode_to_u32(b"checkResource(address,address,bytes4)");
+    static ref QUERY_PERMS: u32 = method::encode_to_u32(b"queryPermissions(address)");
+    static ref QUERY_ALL_ACCOUNTS: u32 = method::encode_to_u32(b"queryAllAccounts()");
+}
+
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct PermStore {
     // key -> height, value -> json(PermissionManager)
     contracts: BTreeMap<u64, Option<String>>,
-}
-
-impl Default for PermStore {
-    fn default() -> PermStore {
-        PermStore {
-            contracts: BTreeMap::new(),
-        }
-    }
 }
 
 impl PermStore {
@@ -80,7 +100,7 @@ impl PermStore {
         let s = serde_json::to_string(&perm_store).unwrap();
         let _ = contracts_db.insert(
             DataCategory::Contracts,
-            b"permission-contract".to_vec(),
+            b"perm".to_vec(),
             s.as_bytes().to_vec(),
         );
     }
@@ -90,7 +110,7 @@ impl PermStore {
         contracts_db: Arc<ContractsDB>,
     ) -> (Option<PermStore>, Option<PermManager>) {
         if let Some(store) = contracts_db
-            .get(DataCategory::Contracts, b"permission-contract".to_vec())
+            .get(DataCategory::Contracts, b"perm".to_vec())
             .expect("get store error")
         {
             let contract_map: PermStore = serde_json::from_slice(&store).unwrap();
@@ -126,10 +146,10 @@ impl PermStore {
         state: Arc<RefCell<State<B>>>,
     ) {
         match PermStore::get_latest_item(context.block_number, contracts_db.clone()) {
-            (Some(mut contract_map), Some(mut latest_permission_manager)) => {
-                latest_permission_manager.update_admin_permissions(old_admin, new_admin);
+            (Some(mut contract_map), Some(mut latest_perm_manager)) => {
+                latest_perm_manager.update_admin_permissions(old_admin, new_admin);
 
-                let str = serde_json::to_string(&latest_permission_manager).unwrap();
+                let str = serde_json::to_string(&latest_perm_manager).unwrap();
                 let updated_hash = keccak256(&str.as_bytes().to_vec());
                 let _ = state
                     .borrow_mut()
@@ -146,7 +166,7 @@ impl PermStore {
                 let map_str = serde_json::to_string(&contract_map).unwrap();
                 let _ = contracts_db.insert(
                     DataCategory::Contracts,
-                    b"permission-contract".to_vec(),
+                    b"perm".to_vec(),
                     map_str.as_bytes().to_vec(),
                 );
             }
@@ -163,11 +183,11 @@ impl<B: DB> Contract<B> for PermStore {
         contracts_db: Arc<ContractsDB>,
         state: Arc<RefCell<State<B>>>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - permission - enter execute");
-        let (contract_map, latest_permission_manager) =
+        trace!("Permission contract: enter execute");
+        let (contract_map, latest_perm_manager) =
             PermStore::get_latest_item(context.block_number, contracts_db.clone());
-        match (contract_map, latest_permission_manager) {
-            (Some(mut contract_map), Some(mut latest_permission_manager)) => {
+        match (contract_map, latest_perm_manager) {
+            (Some(mut contract_map), Some(mut latest_perm_manager)) => {
                 trace!(
                     "System contracts - permission - params input {:?}",
                     params.input
@@ -175,79 +195,84 @@ impl<B: DB> Contract<B> for PermStore {
                 let mut updated = false;
                 let result =
                     extract_to_u32(&params.input[..]).and_then(|signature| match signature {
-                        0xfc4a089c => latest_permission_manager.new_permission(
+                        sig if sig == *NEW_PERM => latest_perm_manager.new_permission(
                             params,
                             &mut updated,
                             context,
                             contracts_db.clone(),
                             state.clone(),
                         ),
-                        0x98a05bb1 => latest_permission_manager.del_permission(
+                        sig if sig == *DEL_PERM => latest_perm_manager.del_permission(
                             params,
                             &mut updated,
                             context,
                             contracts_db.clone(),
                         ),
-                        0x537bf9a3 => latest_permission_manager.update_permission_name(
+                        sig if sig == *UPDATE_PERM_NAME => latest_perm_manager
+                            .update_permission_name(
+                                params,
+                                &mut updated,
+                                context,
+                                contracts_db.clone(),
+                            ),
+                        sig if sig == *ADD_RESOURCES => latest_perm_manager
+                            .add_permission_resources(
+                                params,
+                                &mut updated,
+                                context,
+                                contracts_db.clone(),
+                            ),
+                        sig if sig == *DEL_RESOURCES => latest_perm_manager
+                            .del_permission_resources(
+                                params,
+                                &mut updated,
+                                context,
+                                contracts_db.clone(),
+                            ),
+                        sig if sig == *SET_AUTHS => latest_perm_manager.set_authorizations(
                             params,
                             &mut updated,
                             context,
                             contracts_db.clone(),
                         ),
-                        0xf036ed56 => latest_permission_manager.add_permission_resources(
+                        sig if sig == *SET_AUTH => latest_perm_manager.set_authorization(
                             params,
                             &mut updated,
                             context,
                             contracts_db.clone(),
                         ),
-                        0x6446ebd8 => latest_permission_manager.del_permission_resources(
+                        sig if sig == *CANCEL_AUTHS => latest_perm_manager.cancel_authorizations(
                             params,
                             &mut updated,
                             context,
                             contracts_db.clone(),
                         ),
-                        0x52c5b4cc => latest_permission_manager.set_authorizations(
+                        sig if sig == *CANCEL_AUTH => latest_perm_manager.cancel_authorization(
                             params,
                             &mut updated,
                             context,
                             contracts_db.clone(),
                         ),
-                        0x0f5aa9f3 => latest_permission_manager.set_authorization(
+                        sig if sig == *CLEAR_AUTHS => latest_perm_manager.clear_authorization(
                             params,
                             &mut updated,
                             context,
                             contracts_db.clone(),
                         ),
-                        0xba00ab60 => latest_permission_manager.cancel_authorizations(
-                            params,
-                            &mut updated,
-                            context,
-                            contracts_db.clone(),
-                        ),
-                        0x3482e0c9 => latest_permission_manager.cancel_authorization(
-                            params,
-                            &mut updated,
-                            context,
-                            contracts_db.clone(),
-                        ),
-                        0xa5925b5b => latest_permission_manager.clear_authorization(
-                            params,
-                            &mut updated,
-                            context,
-                            contracts_db.clone(),
-                        ),
-                        0x1a160fe9 => latest_permission_manager.check_permission(params),
-                        0xde6afd60 => latest_permission_manager.check_resource(params),
-                        0x945a2555 => latest_permission_manager.query_permssions(params),
-                        0xd28d4e0c => latest_permission_manager.query_all_accounts(params),
-                        0xe286599b => latest_permission_manager.query_resource(params),
-                        0xdff7eafe => latest_permission_manager.query_name(params),
-                        0x9795e7e0 => latest_permission_manager.in_permission(params),
+                        sig if sig == *CHECK_PERM => latest_perm_manager.check_permission(params),
+                        sig if sig == *CHECK_RESOURCE => latest_perm_manager.check_resource(params),
+                        sig if sig == *QUERY_PERMS => latest_perm_manager.query_permssions(params),
+                        sig if sig == *QUERY_ALL_ACCOUNTS => {
+                            latest_perm_manager.query_all_accounts(params)
+                        }
+                        sig if sig == *QUERY_RESOURCE => latest_perm_manager.query_resource(params),
+                        sig if sig == *QUERY_NAME => latest_perm_manager.query_name(params),
+                        sig if sig == *IN_PERMS => latest_perm_manager.in_permission(params),
                         _ => panic!("Invalid function signature {} ", signature),
                     });
 
                 if result.is_ok() & updated {
-                    let new_perm_manager = latest_permission_manager;
+                    let new_perm_manager = latest_perm_manager;
                     let str = serde_json::to_string(&new_perm_manager).unwrap();
                     trace!("hash content is {:?}", str);
                     let updated_hash = keccak256(&str.as_bytes().to_vec());
@@ -269,7 +294,7 @@ impl<B: DB> Contract<B> for PermStore {
                     let map_str = serde_json::to_string(&contract_map).unwrap();
                     let _ = contracts_db.insert(
                         DataCategory::Contracts,
-                        b"permission-contract".to_vec(),
+                        b"perm".to_vec(),
                         map_str.as_bytes().to_vec(),
                     );
 
@@ -326,7 +351,7 @@ impl PermManager {
         contracts_db: Arc<ContractsDB>,
         state: Arc<RefCell<State<B>>>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - permission  - new permission");
+        trace!("Permission contract: new permission");
         let new_permission_build_in = Address::from(build_in_perm::BUILD_IN_PERMS[0]);
         if !self.have_permission(
             params.sender,
@@ -422,10 +447,7 @@ impl PermManager {
         context: &Context,
         contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!(
-            "System contract - permission  - del permission, input {:?}",
-            params.input
-        );
+        trace!("Permission contract: del permission",);
 
         let delete_permission_build_in = Address::from(build_in_perm::BUILD_IN_PERMS[1]);
         if !self.have_permission(
@@ -472,10 +494,7 @@ impl PermManager {
         context: &Context,
         contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!(
-            "System contract - permission  - update permission name, input {:?}",
-            params.input
-        );
+        trace!("Permission contract: update permission name",);
 
         let permission_build_in = Address::from(build_in_perm::BUILD_IN_PERMS[2]);
         if !self.have_permission(
@@ -516,10 +535,7 @@ impl PermManager {
         context: &Context,
         contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!(
-            "System contract - permission  - add_permission_resource, input {:?}",
-            params.input
-        );
+        trace!("Permission contract: add_permission_resource",);
 
         let permission_build_in = Address::from(build_in_perm::BUILD_IN_PERMS[2]);
         if !self.have_permission(
@@ -588,10 +604,7 @@ impl PermManager {
         context: &Context,
         contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!(
-            "System contract - permission  - del_permission_resource, input {:?}",
-            params.input
-        );
+        trace!("Permission contract: del_permission_resource",);
 
         let permission_build_in = Address::from(build_in_perm::BUILD_IN_PERMS[2]);
         if !self.have_permission(
@@ -660,10 +673,7 @@ impl PermManager {
         context: &Context,
         contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!(
-            "System contract - permission  - set_authorizations, input {:?}",
-            params.input
-        );
+        trace!("Permission contract: set_authorizations",);
 
         let permission_build_in = Address::from(build_in_perm::BUILD_IN_PERMS[3]);
         if !self.have_permission(
@@ -730,7 +740,7 @@ impl PermManager {
         context: &Context,
         contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - permission  - cancel_authorizations");
+        trace!("Permission contract: cancel_authorizations");
 
         let permission_build_in = Address::from(build_in_perm::BUILD_IN_PERMS[4]);
         if !self.have_permission(
@@ -792,10 +802,7 @@ impl PermManager {
         context: &Context,
         contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!(
-            "System contract - permission  - set_authorization, input {:?}",
-            params.input
-        );
+        trace!("Permission contract: set_authorization",);
 
         let permission_build_in = Address::from(build_in_perm::BUILD_IN_PERMS[3]);
         if !self.have_permission(
@@ -839,7 +846,7 @@ impl PermManager {
         context: &Context,
         contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - permission  - cancel_authorization");
+        trace!("Permission contract: cancel_authorization");
 
         let permission_build_in = Address::from(build_in_perm::BUILD_IN_PERMS[4]);
         if !self.have_permission(
@@ -877,7 +884,7 @@ impl PermManager {
         context: &Context,
         contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - permission  - clear_authorization");
+        trace!("Permission contract: clear_authorization");
 
         let permission_build_in = Address::from(build_in_perm::BUILD_IN_PERMS[4]);
         if !self.have_permission(
@@ -910,7 +917,7 @@ impl PermManager {
         &mut self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - permission  - query_permssions");
+        trace!("Permission contract: query_permssions");
         let param_address = Address::from_slice(&params.input[16..36]);
         if let Some(permissions) = self.account_own_perms.get(&param_address) {
             let mut perms = Vec::new();
@@ -934,7 +941,7 @@ impl PermManager {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - permission  - query_permssions");
+        trace!("Permission contract: query_permssions");
         let mut accounts = Vec::new();
         for k in self.account_own_perms.keys() {
             accounts.push(Token::Address(k.0));
@@ -954,7 +961,7 @@ impl PermManager {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - permission  - query_resource");
+        trace!("Permission contract: query_resource");
         let perm_address = Address::from(&params.input[16..36]);
         if let Some(p) = self.perm_collection.get(&perm_address) {
             let mut tokens = Vec::new();
@@ -982,7 +989,7 @@ impl PermManager {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - permission  - query_name");
+        trace!("Permission contract: query_name");
         let perm_address = Address::from(&params.input[16..36]);
         if let Some(p) = self.perm_collection.get(&perm_address) {
             let name = p.query_name();
@@ -1005,7 +1012,7 @@ impl PermManager {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - permission  - in_permission");
+        trace!("Permission contract: in_permission");
         let perm_address = Address::from(&params.input[16..36]);
         let resource_cont = Address::from(&params.input[48..68]);
         let resource_func = &params.input[68..72];
@@ -1037,7 +1044,7 @@ impl PermManager {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - permission  - check_resource");
+        trace!("Permission contract: check_resource");
         let account = Address::from(&params.input[16..36]);
         let resource_cont = Address::from(&params.input[48..68]);
         let resource_func = &params.input[68..72];
@@ -1073,7 +1080,7 @@ impl PermManager {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - permission  - check_permission");
+        trace!("Permission contract: check_permission");
         let account = Address::from(&params.input[16..36]);
         let permission = Address::from(&params.input[48..68]);
 

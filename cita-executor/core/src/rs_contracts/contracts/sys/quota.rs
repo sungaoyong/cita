@@ -1,12 +1,12 @@
-use super::check;
-use super::utils::{extract_to_u32, get_latest_key};
+use crate::rs_contracts::contracts::tool::check;
+use crate::rs_contracts::contracts::tool::{extract_to_u32, get_latest_key};
 
 use cita_types::{Address, H256, U256};
 use cita_vm::evm::{InterpreterParams, InterpreterResult};
 use common_types::context::Context;
 use common_types::errors::ContractError;
 
-use super::contract::Contract;
+use crate::rs_contracts::contracts::Contract;
 use crate::rs_contracts::storage::db_contracts::ContractsDB;
 use crate::rs_contracts::storage::db_trait::DataBase;
 use crate::rs_contracts::storage::db_trait::DataCategory;
@@ -19,23 +19,28 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use tiny_keccak::keccak256;
 
+use crate::contracts::tools::method;
+lazy_static! {
+    static ref SET_DEFAUL_AQL: u32 = method::encode_to_u32(b"setDefaultAQL(uint256)");
+    static ref SET_AQL: u32 = method::encode_to_u32(b"setAQL(address,uint256)");
+    static ref SET_BQL: u32 = method::encode_to_u32(b"setBQL(uint256)");
+    static ref GET_ACCOUNTS: u32 = method::encode_to_u32(b"getAccounts()");
+    static ref GET_QUOTAS: u32 = method::encode_to_u32(b"getQuotas()");
+    static ref GET_BQL: u32 = method::encode_to_u32(b"getBQL()");
+    static ref GET_DEFAULT_AQL: u32 = method::encode_to_u32(b"getDefaultAQL()");
+    static ref GET_AQL: u32 = method::encode_to_u32(b"getAQL(address)");
+    static ref GET_AUTO_EXEC_QL: u32 = method::encode_to_u32(b"getAutoExecQL()");
+}
+
 const BQL_VALUE: u64 = 1_073_741_824;
 const AQL_VALUE: u64 = 268_435_456;
 pub const AUTO_EXEC_QL_VALUE: u64 = 1_048_576;
 const MAX_LIMIT: u64 = 9_223_372_036_854_775_808; // 2 ** 63
 const MIN_LIMIT: u64 = 4_194_304; // 2 ** 22
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct QuotaContract {
     contracts: BTreeMap<u64, Option<String>>,
-}
-
-impl Default for QuotaContract {
-    fn default() -> Self {
-        QuotaContract {
-            contracts: BTreeMap::new(),
-        }
-    }
 }
 
 impl QuotaContract {
@@ -45,7 +50,7 @@ impl QuotaContract {
         let s = serde_json::to_string(&a).unwrap();
         let _ = contracts_db.insert(
             DataCategory::Contracts,
-            b"quota-contract".to_vec(),
+            b"quota".to_vec(),
             s.as_bytes().to_vec(),
         );
     }
@@ -56,7 +61,7 @@ impl QuotaContract {
         contracts_db: Arc<ContractsDB>,
     ) -> (Option<QuotaContract>, Option<QuotaManager>) {
         if let Some(store) = contracts_db
-            .get(DataCategory::Contracts, b"quota-contract".to_vec())
+            .get(DataCategory::Contracts, b"quota".to_vec())
             .expect("get store error")
         {
             let contract_map: QuotaContract = serde_json::from_slice(&store).unwrap();
@@ -100,24 +105,24 @@ impl<B: DB> Contract<B> for QuotaContract {
                 let mut updated = false;
                 let result =
                     extract_to_u32(&params.input[..]).and_then(|signature| match signature {
-                        0xb107ea12 => latest_item.set_default_aql(
+                        sig if sig == *SET_DEFAUL_AQL => latest_item.set_default_aql(
                             params,
                             &mut updated,
                             context,
                             contracts_db.clone(),
                         ),
-                        0x499a1bcd => {
+                        sig if sig == *SET_AQL => {
                             latest_item.set_aql(params, &mut updated, context, contracts_db.clone())
                         }
-                        0x931cd0cc => {
+                        sig if sig == *SET_BQL => {
                             latest_item.set_bql(params, &mut updated, context, contracts_db.clone())
                         }
-                        0x8a48ac03 => latest_item.get_accounts(params),
-                        0xcdbcff6d => latest_item.get_quotas(params),
-                        0x0bc8982f => latest_item.get_bql(params),
-                        0xbd9fbe7b => latest_item.get_default_aql(params),
-                        0x942a8ad3 => latest_item.get_aql(params),
-                        0x9cd981bb => latest_item.get_auto_exec_ql(params),
+                        sig if sig == *GET_ACCOUNTS => latest_item.get_accounts(params),
+                        sig if sig == *GET_QUOTAS => latest_item.get_quotas(params),
+                        sig if sig == *GET_BQL => latest_item.get_bql(params),
+                        sig if sig == *GET_DEFAULT_AQL => latest_item.get_default_aql(params),
+                        sig if sig == *GET_AQL => latest_item.get_aql(params),
+                        sig if sig == *GET_AUTO_EXEC_QL => latest_item.get_auto_exec_ql(params),
                         _ => panic!("Invalid function signature".to_owned()),
                     });
 
@@ -142,17 +147,9 @@ impl<B: DB> Contract<B> for QuotaContract {
                     let map_str = serde_json::to_string(&contract_map).unwrap();
                     let _ = contracts_db.insert(
                         DataCategory::Contracts,
-                        b"quota-contract".to_vec(),
+                        b"quota".to_vec(),
                         map_str.as_bytes().to_vec(),
                     );
-
-                    // debug information, can be ommited
-                    // let bin_map = contracts_db
-                    //     .get(DataCategory::Contracts, b"quota-contract".to_vec())
-                    //     .unwrap();
-                    // let str = String::from_utf8(bin_map.unwrap()).unwrap();
-                    // let contracts: QuotaContract = serde_json::from_str(&str).unwrap();
-                    // trace!("System contract quota {:?} after update.", contracts);
                 }
                 return result;
             }
@@ -187,7 +184,7 @@ impl QuotaManager {
         context: &Context,
         contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - quota - set_defaul_aql");
+        trace!("Quota contract: set_defaul_aql");
         let param_default_aql = U256::from(&params.input[4..]);
         if check::only_admin(params, context, contracts_db.clone()).expect("Not admin")
             && self.check_base_limit(param_default_aql)
@@ -212,10 +209,7 @@ impl QuotaManager {
         context: &Context,
         contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!(
-            "System contract - quota - set_aql, input {:?}",
-            params.input
-        );
+        trace!("Quota contract: input {:?}", params.input);
         let param_address = Address::from(&params.input[16..36]);
         let param_aql = U256::from(&params.input[36..]);
         if check::only_admin(params, context, contracts_db.clone()).expect("Not admin")
@@ -246,7 +240,7 @@ impl QuotaManager {
         context: &Context,
         contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - quota - set_defaul_bql");
+        trace!("Quota contract: set_bql");
         let param_default_bql = U256::from(&params.input[4..]);
         if check::only_admin(params, context, contracts_db.clone()).expect("Not admin")
             && self.check_block_limit(param_default_bql)
@@ -269,7 +263,7 @@ impl QuotaManager {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - quota - get_accounts");
+        trace!("Quota contract: get_accounts");
         let mut accounts = Vec::new();
         for key in self.account_quota.keys() {
             let tmp = Token::Address(key.0);
@@ -289,7 +283,7 @@ impl QuotaManager {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - quota - get_quotas");
+        trace!("Quota contract: get_quotas");
         let mut quotas = Vec::new();
         for v in self.account_quota.values() {
             let tmp = Token::Uint(H256::from(v).0);
@@ -306,7 +300,7 @@ impl QuotaManager {
     }
 
     pub fn get_bql(&self, params: &InterpreterParams) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - quota - get_bql");
+        trace!("Quota contract: get_bql");
         return Ok(InterpreterResult::Normal(
             H256::from(self.default_block_quota_limit).0.to_vec(),
             params.gas_limit,
@@ -318,7 +312,7 @@ impl QuotaManager {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - quota - get_default_aql");
+        trace!("Quota contract: get_default_aql");
         return Ok(InterpreterResult::Normal(
             H256::from(self.default_account_quota_limit).0.to_vec(),
             params.gas_limit,
@@ -327,10 +321,7 @@ impl QuotaManager {
     }
 
     pub fn get_aql(&self, params: &InterpreterParams) -> Result<InterpreterResult, ContractError> {
-        trace!(
-            "System contract - quota - get_aql, input {:?}",
-            params.input
-        );
+        trace!("Quota contract: get_aql");
         let param_address = Address::from_slice(&params.input[16..36]);
         if let Some(quota) = self.account_quota.get(&param_address) {
             if *quota == U256::zero() {
@@ -358,7 +349,7 @@ impl QuotaManager {
         &self,
         params: &InterpreterParams,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - quota - get_auto_exec_ql");
+        trace!("Quota contract: get_auto_exec_ql");
 
         return Ok(InterpreterResult::Normal(
             H256::from(U256::from(AUTO_EXEC_QL_VALUE)).0.to_vec(),

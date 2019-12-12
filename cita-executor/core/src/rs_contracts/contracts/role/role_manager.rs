@@ -1,4 +1,4 @@
-use crate::rs_contracts::contracts::utils::{clean_0x, extract_to_u32, get_latest_key};
+use crate::rs_contracts::contracts::tool::utils::{clean_0x, extract_to_u32, get_latest_key};
 
 use cita_types::traits::LowerHex;
 use cita_types::{Address, H256, U256};
@@ -47,18 +47,10 @@ lazy_static! {
     static ref IN_PERMISSIONS: u32 = method::encode_to_u32(b"inPermissions(address,address)");
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct RoleStore {
     // key -> height, value -> json(RoleManager)
     contracts: BTreeMap<u64, Option<String>>,
-}
-
-impl Default for RoleStore {
-    fn default() -> RoleStore {
-        RoleStore {
-            contracts: BTreeMap::new(),
-        }
-    }
 }
 
 impl RoleStore {
@@ -122,67 +114,67 @@ impl<B: DB> Contract<B> for RoleStore {
                 trace!("System contracts - role - params input {:?}", params.input);
                 let mut updated = false;
                 let result =
-                    extract_to_u32(&params.input[..]).and_then(
-                        |signature| match signature {
-                            sig if sig == *NEW_ROLE => latest_manager.new_role(
-                                params,
-                                &mut updated,
-                                context,
-                                contracts_db.clone(),
-                                state.clone(),
-                            ),
-                            sig if sig == *DEL_ROLE => latest_manager.delete_role(
-                                params,
-                                &mut updated,
-                                context,
-                                contracts_db.clone(),
-                            ),
-                            sig if sig == *UPDATE_ROLE_NAME => latest_manager.update_role_name(
-                                params,
-                                &mut updated,
-                                context,
-                                contracts_db.clone(),
-                            ),
-                            sig if sig == *ADD_PERMISSION => latest_manager.add_permissions(
-                                params,
-                                &mut updated,
-                                context,
-                                contracts_db.clone(),
-                            ),
-                            sig if sig == *DEL_PERMISSION => latest_manager.delete_permissions(
-                                params,
-                                &mut updated,
-                                context,
-                                contracts_db.clone(),
-                            ),
-                            sig if sig == *SET_ROLE => latest_manager.set_role(
-                                params,
-                                &mut updated,
-                                context,
-                                contracts_db.clone(),
-                            ),
-                            sig if sig == *CANCEL_ROLE => latest_manager.cancel_role(
-                                params,
-                                &mut updated,
-                                context,
-                                contracts_db.clone(),
-                            ),
-                            sig if sig == *CLEAR_ROLE => latest_manager.clear_role(
-                                params,
-                                &mut updated,
-                                context,
-                                contracts_db.clone(),
-                            ),
-                            sig if sig == *QUERY_ROLES => latest_manager.query_roles(params),
-                            sig if sig == *QUERY_ACCOUNTS => latest_manager.query_accounts(params),
-                            sig if sig == *QUERY_ROLE => latest_manager.query_role(params),
-                            sig if sig == *QUERY_NAME => latest_manager.query_name(params),
-                            sig if sig == *QUERY_PERMISSIONS => latest_manager.query_permssions(params),
-                            sig if sig == *PERMISSIONS_LEN =>latest_manager.query_permssions_length(params),
-                            sig if sig == *IN_PERMISSIONS => latest_manager.in_permission(params),
-                            _ => panic!("Invalid function signature {} ", signature),
-                        },
-                    );
+                    extract_to_u32(&params.input[..]).and_then(|signature| match signature {
+                        sig if sig == *NEW_ROLE => latest_manager.new_role(
+                            params,
+                            &mut updated,
+                            context,
+                            contracts_db.clone(),
+                            state.clone(),
+                        ),
+                        sig if sig == *DEL_ROLE => latest_manager.delete_role(
+                            params,
+                            &mut updated,
+                            context,
+                            contracts_db.clone(),
+                        ),
+                        sig if sig == *UPDATE_ROLE_NAME => latest_manager.update_role_name(
+                            params,
+                            &mut updated,
+                            context,
+                            contracts_db.clone(),
+                        ),
+                        sig if sig == *ADD_PERMISSION => latest_manager.add_permissions(
+                            params,
+                            &mut updated,
+                            context,
+                            contracts_db.clone(),
+                        ),
+                        sig if sig == *DEL_PERMISSION => latest_manager.delete_permissions(
+                            params,
+                            &mut updated,
+                            context,
+                            contracts_db.clone(),
+                        ),
+                        sig if sig == *SET_ROLE => latest_manager.set_role(
+                            params,
+                            &mut updated,
+                            context,
+                            contracts_db.clone(),
+                        ),
+                        sig if sig == *CANCEL_ROLE => latest_manager.cancel_role(
+                            params,
+                            &mut updated,
+                            context,
+                            contracts_db.clone(),
+                        ),
+                        sig if sig == *CLEAR_ROLE => latest_manager.clear_role(
+                            params,
+                            &mut updated,
+                            context,
+                            contracts_db.clone(),
+                        ),
+                        sig if sig == *QUERY_ROLES => latest_manager.query_roles(params),
+                        sig if sig == *QUERY_ACCOUNTS => latest_manager.query_accounts(params),
+                        sig if sig == *QUERY_ROLE => latest_manager.query_role(params),
+                        sig if sig == *QUERY_NAME => latest_manager.query_name(params),
+                        sig if sig == *QUERY_PERMISSIONS => latest_manager.query_permssions(params),
+                        sig if sig == *PERMISSIONS_LEN => {
+                            latest_manager.query_permssions_length(params)
+                        }
+                        sig if sig == *IN_PERMISSIONS => latest_manager.in_permission(params),
+                        _ => panic!("Invalid function signature {} ", signature),
+                    });
 
                 if result.is_ok() & updated {
                     let new_item = latest_manager;
@@ -208,14 +200,6 @@ impl<B: DB> Contract<B> for RoleStore {
                         b"role".to_vec(),
                         map_str.as_bytes().to_vec(),
                     );
-
-                    // debug information, can be ommited
-                    // let bin_map = contracts_db
-                    //     .get(DataCategory::Contracts, b"group-contract".to_vec())
-                    //     .unwrap();
-                    // let str = String::from_utf8(bin_map.unwrap()).unwrap();
-                    // let contracts: GroupStore = serde_json::from_str(&str).unwrap();
-                    // trace!("System contract group {:?} after update.", contracts);
                 }
                 return result;
             }
@@ -539,7 +523,7 @@ impl RoleManager {
 
         let account_address = Address::from(&params.input[16..36]);
         trace!("account address is {:?}", account_address);
-        for (addr, role) in self.roles.iter_mut() {
+        for (_, role) in self.roles.iter_mut() {
             if role.in_accounts(&account_address) {
                 role.delete_account(account_address);
                 *changed = true;
@@ -590,7 +574,7 @@ impl RoleManager {
         );
 
         let mut token_accounts = Vec::new();
-        for (addr, role) in self.roles.iter() {
+        for (_, role) in self.roles.iter() {
             for i in role.query_accounts().iter() {
                 // TODO: remove duplicated accounts
                 token_accounts.push(Token::Address(i.0));

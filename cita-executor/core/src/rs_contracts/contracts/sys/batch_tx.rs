@@ -1,5 +1,5 @@
-use super::contract::Contract;
-use super::utils::extract_to_u32;
+use crate::rs_contracts::contracts::tool::extract_to_u32;
+use crate::rs_contracts::contracts::Contract;
 
 use cita_types::{Address, H256, U256};
 use common_types::context::Context;

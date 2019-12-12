@@ -35,20 +35,15 @@ use std::sync::Arc;
 use std::time::Instant;
 use std::u64;
 
-use crate::rs_contracts::contracts::admin::Admin;
-use crate::rs_contracts::contracts::auto_exec::AutoExec;
-use crate::rs_contracts::contracts::batch_tx::BatchTx;
-use crate::rs_contracts::contracts::emergency_intervention;
 use crate::rs_contracts::contracts::group::group_manager::GroupManager;
-use crate::rs_contracts::contracts::node_manager::NodeManager;
 use crate::rs_contracts::contracts::perm::Permission;
-use crate::rs_contracts::contracts::price::Price;
-use crate::rs_contracts::contracts::quota_manager::QuotaManager;
 use crate::rs_contracts::contracts::role::role_manager::RoleManager;
-use crate::rs_contracts::contracts::sys_config::Sysconfig;
-use crate::rs_contracts::contracts::version::Version;
+use crate::rs_contracts::contracts::sys::{
+    Admin, AutoExec, BatchTx, EmergencyIntervention, NodeManager, Price, QuotaManager, SysConfig,
+    Version,
+};
 
-use crate::rs_contracts::contracts::utils::{
+use crate::rs_contracts::contracts::tool::utils::{
     encode_string, hex_to_integer, string_to_bool, string_to_static_str, string_to_u64,
 };
 use crate::rs_contracts::factory::ContractsFactory;
@@ -158,7 +153,7 @@ impl Genesis {
                 for (key, value) in contract.storage.clone() {
                     if *key == "admin".to_string() {
                         let admin = Address::from_unaligned(value.as_str()).unwrap();
-                        let contract_admin = Admin::init(admin);
+                        let contract_admin = Admin::new(admin);
                         let str = serde_json::to_string(&contract_admin).unwrap();
                         contracts_factory.register(address, str);
                     }
@@ -290,7 +285,7 @@ impl Genesis {
                 trace!("Block interval is {:?}", block_interval);
                 trace!("Block interval after {:?}", string_to_u64(block_interval));
 
-                let system_config = Sysconfig::new(
+                let system_config = SysConfig::new(
                     string_to_u64(delay_block_number),
                     string_to_bool(check_call_permission),
                     string_to_bool(check_send_tx_permission),
@@ -368,7 +363,7 @@ impl Genesis {
             }
         }
         // register emergency intervention
-        let emerg_contract = emergency_intervention::EmergencyIntervention::default();
+        let emerg_contract = EmergencyIntervention::default();
         let str = serde_json::to_string(&emerg_contract).unwrap();
         contracts_factory.register(
             Address::from(reserved_addresses::EMERGENCY_INTERVENTION),

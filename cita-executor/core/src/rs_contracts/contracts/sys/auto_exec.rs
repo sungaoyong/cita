@@ -1,13 +1,12 @@
-use super::check;
-use super::utils::{extract_to_u32, get_latest_key};
+use crate::rs_contracts::contracts::tool::check;
+use crate::rs_contracts::contracts::tool::{extract_to_u32, get_latest_key};
 
-use cita_types::{Address, H160, H256, U256};
+use cita_types::{Address, H256, U256};
 use cita_vm::evm::{InterpreterParams, InterpreterResult};
 use common_types::context::Context;
 use common_types::errors::ContractError;
-use common_types::reserved_addresses;
 
-use super::contract::Contract;
+use crate::rs_contracts::contracts::Contract;
 use crate::rs_contracts::storage::db_contracts::ContractsDB;
 use crate::rs_contracts::storage::db_trait::DataBase;
 use crate::rs_contracts::storage::db_trait::DataCategory;
@@ -17,7 +16,6 @@ use cita_trie::DB;
 use cita_vm::state::State;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::str::FromStr;
 use std::sync::Arc;
 use tiny_keccak::keccak256;
 
@@ -28,25 +26,19 @@ use crate::cita_vm_helper::get_interpreter_conf;
 use crate::data_provider::Store as VMSubState;
 use crate::libexecutor::block::EVMBlockDataProvider;
 
-const AUTO_EXEC: &[u8] = &*b"autoExec()";
+use crate::contracts::tools::method;
+lazy_static! {
+    static ref REGISTER: u32 = method::encode_to_u32(b"register(address)");
+    static ref AUTO_EXEC: u32 = method::encode_to_u32(b"autoExec()");
+    static ref AUTO_EXEC_HASH: Vec<u8> = method_tools::encode_to_vec(b"autoExec()");
+}
+
+// const AUTO_EXEC: &[u8] = &*b"autoExec()";
 pub const AUTO_EXEC_QL_VALUE: u64 = 1_048_576;
 
-lazy_static! {
-    static ref AUTO_EXEC_ADDR: H160 = H160::from_str(reserved_addresses::AUTO_EXEC).unwrap();
-    static ref AUTO_EXEC_HASH: Vec<u8> = method_tools::encode_to_vec(AUTO_EXEC);
-}
-
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct AutoContract {
     contracts: BTreeMap<u64, Option<String>>,
-}
-
-impl Default for AutoContract {
-    fn default() -> Self {
-        AutoContract {
-            contracts: BTreeMap::new(),
-        }
-    }
 }
 
 impl AutoContract {
@@ -56,7 +48,7 @@ impl AutoContract {
         let s = serde_json::to_string(&a).unwrap();
         let _ = contracts_db.insert(
             DataCategory::Contracts,
-            b"auto-contract".to_vec(),
+            b"auto".to_vec(),
             s.as_bytes().to_vec(),
         );
     }
@@ -67,7 +59,7 @@ impl AutoContract {
         contracts_db: Arc<ContractsDB>,
     ) -> (Option<AutoContract>, Option<AutoExec>) {
         if let Some(store) = contracts_db
-            .get(DataCategory::Contracts, b"auto-contract".to_vec())
+            .get(DataCategory::Contracts, b"auto".to_vec())
             .expect("get store error")
         {
             let contract_map: AutoContract = serde_json::from_slice(&store).unwrap();
@@ -114,13 +106,13 @@ impl<B: DB + 'static> Contract<B> for AutoContract {
                 let mut updated = false;
                 let result =
                     extract_to_u32(&params.input[..]).and_then(|signature| match signature {
-                        0x4420e486 => latest_item.register(
+                        sig if sig == *REGISTER => latest_item.register(
                             params,
                             &mut updated,
                             context,
                             contracts_db.clone(),
                         ),
-                        0x844cbc43 => {
+                        sig if sig == *AUTO_EXEC => {
                             latest_item.auto_exec(&context, state.clone(), contracts_db.clone())
                         }
                         _ => panic!("Invalid function signature".to_owned()),
@@ -147,7 +139,7 @@ impl<B: DB + 'static> Contract<B> for AutoContract {
                     let map_str = serde_json::to_string(&contract_map).unwrap();
                     let _ = contracts_db.insert(
                         DataCategory::Contracts,
-                        b"auto-contract".to_vec(),
+                        b"auto".to_vec(),
                         map_str.as_bytes().to_vec(),
                     );
                 }
@@ -158,17 +150,9 @@ impl<B: DB + 'static> Contract<B> for AutoContract {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct AutoExec {
     contract_address: Address,
-}
-
-impl Default for AutoExec {
-    fn default() -> Self {
-        AutoExec {
-            contract_address: Address::new(),
-        }
-    }
 }
 
 impl AutoExec {
@@ -179,7 +163,7 @@ impl AutoExec {
         context: &Context,
         contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - auto exec - register");
+        trace!("Auto contract: register");
         let param_address = Address::from_slice(&params.input[16..36]);
         if check::only_admin(params, context, contracts_db.clone()).expect("Not admin")
             && param_address != self.contract_address
@@ -203,7 +187,7 @@ impl AutoExec {
         state: Arc<RefCell<State<B>>>,
         contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - auto exec - auto_exec");
+        trace!("Auto contract: auto exec");
         let hash = &*AUTO_EXEC_HASH;
         let params = ExecutiveParams {
             code_address: Some(self.contract_address),

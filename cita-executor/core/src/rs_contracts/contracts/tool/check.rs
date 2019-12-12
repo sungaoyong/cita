@@ -1,12 +1,14 @@
-use crate::rs_contracts::contracts::build_in_perm::BUILD_IN_PERMS;
+// use crate::rs_contracts::contracts::build_in_perm::BUILD_IN_PERMS;
+use crate::rs_contracts::contracts::perm::BUILD_IN_PERMS;
 use cita_types::Address;
 use cita_vm::evm::InterpreterParams;
 use common_types::context::Context;
 use common_types::errors::ContractError;
 use std::sync::Arc;
 
-use crate::rs_contracts::contracts::admin::{Admin, AdminContract};
-use crate::rs_contracts::contracts::utils::get_latest_key;
+// use crate::rs_contracts::contracts::admin::{Admin, AdminContract};
+use crate::rs_contracts::contracts::sys::{Admin, AdminContract};
+use crate::rs_contracts::contracts::tool::utils::get_latest_key;
 use crate::rs_contracts::storage::db_contracts::ContractsDB;
 use crate::rs_contracts::storage::db_trait::DataBase;
 use crate::rs_contracts::storage::db_trait::DataCategory;
@@ -19,7 +21,7 @@ pub fn only_admin(
     let current_height = context.block_number;
 
     if let Some(store) = contracts_db
-        .get(DataCategory::Contracts, b"admin-contract".to_vec())
+        .get(DataCategory::Contracts, b"admin".to_vec())
         .expect("get store error")
     {
         let contract_map: AdminContract = serde_json::from_slice(&store).unwrap();

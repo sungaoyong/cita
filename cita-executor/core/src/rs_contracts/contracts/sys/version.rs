@@ -1,12 +1,12 @@
-use super::check;
-use super::utils::{extract_to_u32, get_latest_key};
+use crate::rs_contracts::contracts::tool::check;
+use crate::rs_contracts::contracts::tool::{extract_to_u32, get_latest_key};
 
 use cita_types::{H256, U256};
-use cita_vm::evm::{InterpreterParams, InterpreterResult, Log};
+use cita_vm::evm::{InterpreterParams, InterpreterResult};
 use common_types::context::Context;
 use common_types::errors::ContractError;
 
-use super::contract::Contract;
+use crate::rs_contracts::contracts::Contract;
 use crate::rs_contracts::storage::db_contracts::ContractsDB;
 use crate::rs_contracts::storage::db_trait::DataBase;
 use crate::rs_contracts::storage::db_trait::DataCategory;
@@ -18,27 +18,25 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use tiny_keccak::keccak256;
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct PriceContract {
+use crate::contracts::tools::method;
+lazy_static! {
+    static ref SET_VERSION: u32 = method::encode_to_u32(b"setVersion(uint32)");
+    static ref GET_VERSION: u32 = method::encode_to_u32(b"getVersion()");
+}
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct VersionContract {
     contracts: BTreeMap<u64, Option<String>>,
 }
 
-impl Default for PriceContract {
-    fn default() -> Self {
-        PriceContract {
-            contracts: BTreeMap::new(),
-        }
-    }
-}
-
-impl PriceContract {
+impl VersionContract {
     pub fn init(str: String, contracts_db: Arc<ContractsDB>) {
-        let mut a = PriceContract::default();
+        let mut a = VersionContract::default();
         a.contracts.insert(0, Some(str));
         let s = serde_json::to_string(&a).unwrap();
         let _ = contracts_db.insert(
             DataCategory::Contracts,
-            b"price-contract".to_vec(),
+            b"version".to_vec(),
             s.as_bytes().to_vec(),
         );
     }
@@ -47,12 +45,12 @@ impl PriceContract {
         &self,
         current_height: u64,
         contracts_db: Arc<ContractsDB>,
-    ) -> (Option<PriceContract>, Option<Price>) {
+    ) -> (Option<VersionContract>, Option<Version>) {
         if let Some(store) = contracts_db
-            .get(DataCategory::Contracts, b"price-contract".to_vec())
+            .get(DataCategory::Contracts, b"version".to_vec())
             .expect("get store error")
         {
-            let contract_map: PriceContract = serde_json::from_slice(&store).unwrap();
+            let contract_map: VersionContract = serde_json::from_slice(&store).unwrap();
             let keys: Vec<_> = contract_map.contracts.keys().collect();
             let latest_key = get_latest_key(current_height, keys.clone());
             trace!(
@@ -66,17 +64,17 @@ impl PriceContract {
                 .contracts
                 .get(&(current_height as u64))
                 .or(contract_map.contracts.get(&latest_key))
-                .expect("get contract according to height error");
-            let latest_price: Price = serde_json::from_str(&(*bin).clone().unwrap()).unwrap();
-            trace!("Contract latest item {:?}", latest_price);
+                .expect("get concrete contract error");
+            let latest_item: Version = serde_json::from_str(&(*bin).clone().unwrap()).unwrap();
+            trace!("Contract latest item {:?}", latest_item);
 
-            return (Some(contract_map), Some(latest_price));
+            return (Some(contract_map), Some(latest_item));
         }
         (None, None)
     }
 }
 
-impl<B: DB> Contract<B> for PriceContract {
+impl<B: DB> Contract<B> for VersionContract {
     fn execute(
         &self,
         params: &InterpreterParams,
@@ -85,17 +83,19 @@ impl<B: DB> Contract<B> for PriceContract {
         state: Arc<RefCell<State<B>>>,
     ) -> Result<InterpreterResult, ContractError> {
         trace!("System contract - price - enter execute");
-        let (contract_map, latest_price) =
+        let (contract_map, latest_item) =
             self.get_latest_item(context.block_number, contracts_db.clone());
-        match (contract_map, latest_price) {
-            (Some(mut contract_map), Some(mut latest_price)) => {
-                trace!("System contracts - price - params input {:?}", params.input);
-                trace!("System contracts - price - params context {:?}", context);
+        match (contract_map, latest_item) {
+            (Some(mut contract_map), Some(mut latest_item)) => {
+                trace!(
+                    "System contracts - version - params input {:?}",
+                    params.input
+                );
                 let mut updated = false;
                 let result =
                     extract_to_u32(&params.input[..]).and_then(|signature| match signature {
-                        0x6bacc53fu32 => latest_price.get_quota_price(),
-                        0x52da800au32 => latest_price.set_quota_price(
+                        sig if sig == *GET_VERSION => latest_item.get_version(),
+                        sig if sig == *SET_VERSION => latest_item.set_version(
                             params,
                             &mut updated,
                             context,
@@ -105,8 +105,8 @@ impl<B: DB> Contract<B> for PriceContract {
                     });
 
                 if result.is_ok() & updated {
-                    let new_price = latest_price;
-                    let str = serde_json::to_string(&new_price).unwrap();
+                    let new_item = latest_item;
+                    let str = serde_json::to_string(&new_item).unwrap();
                     let updated_hash = keccak256(&str.as_bytes().to_vec());
 
                     // update state
@@ -125,17 +125,17 @@ impl<B: DB> Contract<B> for PriceContract {
                     let map_str = serde_json::to_string(&contract_map).unwrap();
                     let _ = contracts_db.insert(
                         DataCategory::Contracts,
-                        b"price-contract".to_vec(),
+                        b"version".to_vec(),
                         map_str.as_bytes().to_vec(),
                     );
 
                     // debug information, can be ommited
                     // let bin_map = contracts_db
-                    //     .get(DataCategory::Contracts, b"price-contract".to_vec())
+                    //     .get(DataCategory::Contracts, b"version".to_vec())
                     //     .unwrap();
                     // let str = String::from_utf8(bin_map.unwrap()).unwrap();
-                    // let contracts: PriceContract = serde_json::from_str(&str).unwrap();
-                    // trace!("System contract price {:?} after update.", contracts);
+                    // let contracts: VersionContract = serde_json::from_str(&str).unwrap();
+                    // trace!("System contract version {:?} after update.", contracts);
                 }
                 return result;
             }
@@ -145,45 +145,34 @@ impl<B: DB> Contract<B> for PriceContract {
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
-pub struct Price {
-    quota_price: U256,
+pub struct Version {
+    version: U256,
 }
 
-impl Price {
-    pub fn new(quota_price: U256) -> Self {
-        Price { quota_price }
+impl Version {
+    pub fn new(version: U256) -> Self {
+        Version { version }
     }
 
-    pub fn set_quota_price(
+    pub fn set_version(
         &mut self,
         params: &InterpreterParams,
         changed: &mut bool,
         context: &Context,
         contracts_db: Arc<ContractsDB>,
     ) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - Price - set_quota_price");
-        let param_quota_price = U256::from(&params.input[16..36]);
+        trace!("Version contract: set_version");
+        let param_version = U256::from(&params.input[16..36]);
         // Note: Only admin can change quota price
-        if check::only_admin(params, context, contracts_db.clone()).expect("Not admin")
-            && param_quota_price > U256::zero()
+        if check::only_admin(params, context, contracts_db.clone()).expect("only admin can do it")
+            && param_version == self.version + 1
         {
-            self.quota_price = param_quota_price;
+            self.version = param_version;
             *changed = true;
-
-            let mut logs = Vec::new();
-            let mut topics = Vec::new();
-            let signature = "SetQuotaPrice(uint256)".as_bytes();
-            topics.push(H256::from(keccak256(signature)));
-            topics.push(H256::from(self.quota_price));
-            topics.push(H256::default());
-            topics.push(H256::default());
-            let log = Log(params.contract.code_address, topics, vec![]);
-            logs.push(log);
-
             return Ok(InterpreterResult::Normal(
                 H256::from(1).0.to_vec(),
                 params.gas_limit,
-                logs,
+                vec![],
             ));
         }
 
@@ -192,10 +181,10 @@ impl Price {
         ))
     }
 
-    pub fn get_quota_price(&self) -> Result<InterpreterResult, ContractError> {
-        trace!("System contract - Price - get_quota_price");
+    pub fn get_version(&self) -> Result<InterpreterResult, ContractError> {
+        trace!("Version contract: get_version");
         return Ok(InterpreterResult::Normal(
-            H256::from(self.quota_price).to_vec(),
+            H256::from(self.version).to_vec(),
             0,
             vec![],
         ));
