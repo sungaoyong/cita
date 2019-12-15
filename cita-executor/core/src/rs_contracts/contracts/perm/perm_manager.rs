@@ -462,7 +462,6 @@ impl PermManager {
         }
 
         let perm_address = Address::from(&params.input[16..36]);
-        trace!("params decoded: perm_address: {:?}", perm_address);
         if check::check_not_build_in(perm_address) {
             self.perm_collection.remove(&perm_address);
 

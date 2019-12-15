@@ -1,41 +1,37 @@
-use crate::rs_contracts::contracts::tool::utils::is_permssion_contract;
-use cita_vm::evm::InterpreterParams;
-use cita_vm::evm::InterpreterResult;
-use common_types::errors::ContractError;
-use common_types::reserved_addresses;
-
+use cita_trie::DB;
 use cita_types::Address;
-use common_types::context::Context;
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::rs_contracts::contracts::contract::Contract;
 use crate::rs_contracts::storage::db_contracts::ContractsDB;
 
 use crate::rs_contracts::contracts::sys::{
-    AdminContract, AutoContract, BatchTx, EmergContract, NodeStore, PriceContract, QuotaContract,
-    SystemContract, VersionContract,
+    AdminStore, AutoStore, BatchTx, EmergStore, NodeStore, PriceStore, QuotaStore, SystemStore,
+    VersionStore,
 };
 use crate::rs_contracts::contracts::{group::GroupStore, perm::PermStore, role::RoleStore};
 
-use cita_trie::DB;
+use crate::rs_contracts::contracts::tool::check;
+use cita_vm::evm::{InterpreterParams, InterpreterResult};
 use cita_vm::state::State;
-use std::cell::RefCell;
-use std::collections::BTreeMap;
+use common_types::{context::Context, errors::ContractError, reserved_addresses};
 
 pub struct ContractsFactory<B> {
     // contracts: HashMap<Address, Box<Contract>>,
     state: Arc<RefCell<State<B>>>,
     contracts_db: Arc<ContractsDB>,
-    admin_contract: AdminContract,
-    price_contract: PriceContract,
+    admin_store: AdminStore,
+    price_store: PriceStore,
     perm_store: PermStore,
-    emerg_contract: EmergContract,
-    system_contract: SystemContract,
+    emerg_store: EmergStore,
+    system_store: SystemStore,
     nodes_store: NodeStore,
-    quota_contract: QuotaContract,
-    version_contract: VersionContract,
+    quota_store: QuotaStore,
+    version_store: VersionStore,
     group_store: GroupStore,
-    auto_exec_contract: AutoContract,
+    auto_store: AutoStore,
     batch_tx: BatchTx,
     role_store: RoleStore,
 }
@@ -48,23 +44,23 @@ impl<B: DB> ContractsFactory<B> {
             contract
         );
         if address == Address::from(reserved_addresses::ADMIN) {
-            AdminContract::init(contract, self.contracts_db.clone());
+            AdminStore::init(contract, self.contracts_db.clone());
         } else if address == Address::from(reserved_addresses::PRICE_MANAGEMENT) {
-            PriceContract::init(contract, self.contracts_db.clone());
+            PriceStore::init(contract, self.contracts_db.clone());
         } else if address == Address::from(reserved_addresses::VERSION_MANAGEMENT) {
-            VersionContract::init(contract, self.contracts_db.clone());
+            VersionStore::init(contract, self.contracts_db.clone());
         } else if address == Address::from(reserved_addresses::EMERGENCY_INTERVENTION) {
-            EmergContract::init(contract, self.contracts_db.clone());
+            EmergStore::init(contract, self.contracts_db.clone());
         } else if address == Address::from(reserved_addresses::SYS_CONFIG) {
-            SystemContract::init(contract, self.contracts_db.clone());
+            SystemStore::init(contract, self.contracts_db.clone());
         } else if address == Address::from(reserved_addresses::NODE_MANAGER) {
             NodeStore::init(contract, self.contracts_db.clone());
         } else if address == Address::from(reserved_addresses::QUOTA_MANAGER) {
-            QuotaContract::init(contract, self.contracts_db.clone());
+            QuotaStore::init(contract, self.contracts_db.clone());
         } else if address == Address::from(reserved_addresses::GROUP) {
             GroupStore::init(contract, self.contracts_db.clone());
         } else if address == Address::from(reserved_addresses::AUTO_EXEC) {
-            AutoContract::init(contract, self.contracts_db.clone());
+            AutoStore::init(contract, self.contracts_db.clone());
         } else if address == Address::from(reserved_addresses::ROLE_MANAGEMENT) {
             RoleStore::init(contract, self.contracts_db.clone());
         } else if address == Address::from(reserved_addresses::BATCH_TX) {
@@ -83,16 +79,16 @@ impl<B: DB + 'static> ContractsFactory<B> {
         ContractsFactory {
             state: state,
             contracts_db: contracts_db,
-            admin_contract: AdminContract::default(),
-            price_contract: PriceContract::default(),
+            admin_store: AdminStore::default(),
+            price_store: PriceStore::default(),
             perm_store: PermStore::default(),
-            emerg_contract: EmergContract::default(),
-            system_contract: SystemContract::default(),
+            emerg_store: EmergStore::default(),
+            system_store: SystemStore::default(),
             nodes_store: NodeStore::default(),
-            quota_contract: QuotaContract::default(),
-            version_contract: VersionContract::default(),
+            quota_store: QuotaStore::default(),
+            version_store: VersionStore::default(),
             group_store: GroupStore::default(),
-            auto_exec_contract: AutoContract::default(),
+            auto_store: AutoStore::default(),
             batch_tx: BatchTx::default(),
             role_store: RoleStore::default(),
         }
@@ -114,7 +110,7 @@ impl<B: DB + 'static> ContractsFactory<B> {
             || *addr == Address::from(reserved_addresses::BATCH_TX)
             || *addr == Address::from(reserved_addresses::ROLE_MANAGEMENT)
             || *addr == Address::from(reserved_addresses::ROLE_AUTH)
-            || is_permssion_contract(*addr)
+            || check::check_is_permssion_contract(*addr)
         {
             return true;
         }
@@ -127,7 +123,7 @@ impl<B: DB + 'static> ContractsFactory<B> {
         context: &Context,
     ) -> Result<InterpreterResult, ContractError> {
         if params.contract.code_address == Address::from(reserved_addresses::ADMIN) {
-            return self.admin_contract.execute(
+            return self.admin_store.execute(
                 &params,
                 context,
                 self.contracts_db.clone(),
@@ -136,7 +132,7 @@ impl<B: DB + 'static> ContractsFactory<B> {
         } else if params.contract.code_address
             == Address::from(reserved_addresses::PRICE_MANAGEMENT)
         {
-            return self.price_contract.execute(
+            return self.price_store.execute(
                 &params,
                 context,
                 self.contracts_db.clone(),
@@ -145,7 +141,7 @@ impl<B: DB + 'static> ContractsFactory<B> {
         } else if params.contract.code_address
             == Address::from(reserved_addresses::VERSION_MANAGEMENT)
         {
-            return self.version_contract.execute(
+            return self.version_store.execute(
                 &params,
                 context,
                 self.contracts_db.clone(),
@@ -154,14 +150,14 @@ impl<B: DB + 'static> ContractsFactory<B> {
         } else if params.contract.code_address
             == Address::from(reserved_addresses::EMERGENCY_INTERVENTION)
         {
-            return self.emerg_contract.execute(
+            return self.emerg_store.execute(
                 &params,
                 context,
                 self.contracts_db.clone(),
                 self.state.clone(),
             );
         } else if params.contract.code_address == Address::from(reserved_addresses::SYS_CONFIG) {
-            return self.system_contract.execute(
+            return self.system_store.execute(
                 &params,
                 context,
                 self.contracts_db.clone(),
@@ -175,7 +171,7 @@ impl<B: DB + 'static> ContractsFactory<B> {
                 self.state.clone(),
             );
         } else if params.contract.code_address == Address::from(reserved_addresses::AUTO_EXEC) {
-            return self.auto_exec_contract.execute(
+            return self.auto_store.execute(
                 &params,
                 context,
                 self.contracts_db.clone(),
@@ -189,7 +185,7 @@ impl<B: DB + 'static> ContractsFactory<B> {
                 self.state.clone(),
             );
         } else if params.contract.code_address == Address::from(reserved_addresses::QUOTA_MANAGER) {
-            return self.quota_contract.execute(
+            return self.quota_store.execute(
                 &params,
                 context,
                 self.contracts_db.clone(),
@@ -216,9 +212,8 @@ impl<B: DB + 'static> ContractsFactory<B> {
         } else if params.contract.code_address
             == Address::from(reserved_addresses::PERMISSION_MANAGEMENT)
             || params.contract.code_address == Address::from(reserved_addresses::AUTHORIZATION)
-            || is_permssion_contract(params.contract.code_address)
+            || check::check_is_permssion_contract(params.contract.code_address)
         {
-            trace!("This a permission related contract");
             return self.perm_store.execute(
                 &params,
                 context,

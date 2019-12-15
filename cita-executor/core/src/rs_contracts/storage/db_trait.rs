@@ -1,7 +1,6 @@
 #[derive(Debug)]
 pub enum DBError {
     NotFound,
-    B,
     Internal(String),
 }
 

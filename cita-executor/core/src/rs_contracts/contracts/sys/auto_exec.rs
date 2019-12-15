@@ -37,13 +37,13 @@ lazy_static! {
 pub const AUTO_EXEC_QL_VALUE: u64 = 1_048_576;
 
 #[derive(Serialize, Deserialize, Debug, Default)]
-pub struct AutoContract {
+pub struct AutoStore {
     contracts: BTreeMap<u64, Option<String>>,
 }
 
-impl AutoContract {
+impl AutoStore {
     pub fn init(str: String, contracts_db: Arc<ContractsDB>) {
-        let mut a = AutoContract::default();
+        let mut a = AutoStore::default();
         a.contracts.insert(0, Some(str));
         let s = serde_json::to_string(&a).unwrap();
         let _ = contracts_db.insert(
@@ -57,12 +57,12 @@ impl AutoContract {
         &self,
         current_height: u64,
         contracts_db: Arc<ContractsDB>,
-    ) -> (Option<AutoContract>, Option<AutoExec>) {
+    ) -> (Option<AutoStore>, Option<AutoExec>) {
         if let Some(store) = contracts_db
             .get(DataCategory::Contracts, b"auto".to_vec())
             .expect("get store error")
         {
-            let contract_map: AutoContract = serde_json::from_slice(&store).unwrap();
+            let contract_map: AutoStore = serde_json::from_slice(&store).unwrap();
             let keys: Vec<_> = contract_map.contracts.keys().collect();
             let latest_key = get_latest_key(current_height, keys.clone());
             trace!(
@@ -86,7 +86,7 @@ impl AutoContract {
     }
 }
 
-impl<B: DB + 'static> Contract<B> for AutoContract {
+impl<B: DB + 'static> Contract<B> for AutoStore {
     fn execute(
         &self,
         params: &InterpreterParams,

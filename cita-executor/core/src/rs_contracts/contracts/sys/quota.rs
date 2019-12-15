@@ -39,13 +39,13 @@ const MAX_LIMIT: u64 = 9_223_372_036_854_775_808; // 2 ** 63
 const MIN_LIMIT: u64 = 4_194_304; // 2 ** 22
 
 #[derive(Serialize, Deserialize, Debug, Default)]
-pub struct QuotaContract {
+pub struct QuotaStore {
     contracts: BTreeMap<u64, Option<String>>,
 }
 
-impl QuotaContract {
+impl QuotaStore {
     pub fn init(str: String, contracts_db: Arc<ContractsDB>) {
-        let mut a = QuotaContract::default();
+        let mut a = QuotaStore::default();
         a.contracts.insert(0, Some(str));
         let s = serde_json::to_string(&a).unwrap();
         let _ = contracts_db.insert(
@@ -59,12 +59,12 @@ impl QuotaContract {
         &self,
         current_height: u64,
         contracts_db: Arc<ContractsDB>,
-    ) -> (Option<QuotaContract>, Option<QuotaManager>) {
+    ) -> (Option<QuotaStore>, Option<QuotaManager>) {
         if let Some(store) = contracts_db
             .get(DataCategory::Contracts, b"quota".to_vec())
             .expect("get store error")
         {
-            let contract_map: QuotaContract = serde_json::from_slice(&store).unwrap();
+            let contract_map: QuotaStore = serde_json::from_slice(&store).unwrap();
             let keys: Vec<_> = contract_map.contracts.keys().collect();
             let latest_key = get_latest_key(current_height, keys.clone());
             trace!(
@@ -88,7 +88,7 @@ impl QuotaContract {
     }
 }
 
-impl<B: DB> Contract<B> for QuotaContract {
+impl<B: DB> Contract<B> for QuotaStore {
     fn execute(
         &self,
         params: &InterpreterParams,

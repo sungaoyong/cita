@@ -26,13 +26,13 @@ lazy_static! {
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
-pub struct AdminContract {
+pub struct AdminStore {
     pub contracts: BTreeMap<u64, Option<String>>,
 }
 
-impl AdminContract {
+impl AdminStore {
     pub fn init(str: String, contracts_db: Arc<ContractsDB>) {
-        let mut a = AdminContract::default();
+        let mut a = AdminStore::default();
         a.contracts.insert(0, Some(str));
         let s = serde_json::to_string(&a).unwrap();
         let _ = contracts_db.insert(
@@ -46,12 +46,12 @@ impl AdminContract {
         &self,
         current_height: u64,
         contracts_db: Arc<ContractsDB>,
-    ) -> (Option<AdminContract>, Option<Admin>) {
+    ) -> (Option<AdminStore>, Option<Admin>) {
         if let Some(store) = contracts_db
             .get(DataCategory::Contracts, b"admin".to_vec())
             .expect("get store error")
         {
-            let contract_map: AdminContract = serde_json::from_slice(&store).unwrap();
+            let contract_map: AdminStore = serde_json::from_slice(&store).unwrap();
             let keys: Vec<_> = contract_map.contracts.keys().collect();
             let latest_key = get_latest_key(current_height, keys.clone());
             trace!(
@@ -75,7 +75,7 @@ impl AdminContract {
     }
 }
 
-impl<B: DB> Contract<B> for AdminContract {
+impl<B: DB> Contract<B> for AdminStore {
     fn execute(
         &self,
         params: &InterpreterParams,

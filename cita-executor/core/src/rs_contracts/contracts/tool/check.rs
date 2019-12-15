@@ -1,17 +1,16 @@
 // use crate::rs_contracts::contracts::build_in_perm::BUILD_IN_PERMS;
-use crate::rs_contracts::contracts::perm::BUILD_IN_PERMS;
 use cita_types::Address;
 use cita_vm::evm::InterpreterParams;
 use common_types::context::Context;
 use common_types::errors::ContractError;
-use std::sync::Arc;
+use common_types::reserved_addresses;
 
-// use crate::rs_contracts::contracts::admin::{Admin, AdminContract};
-use crate::rs_contracts::contracts::sys::{Admin, AdminContract};
+use crate::rs_contracts::contracts::perm::BUILD_IN_PERMS;
+use crate::rs_contracts::contracts::sys::{Admin, AdminStore};
 use crate::rs_contracts::contracts::tool::utils::get_latest_key;
 use crate::rs_contracts::storage::db_contracts::ContractsDB;
-use crate::rs_contracts::storage::db_trait::DataBase;
-use crate::rs_contracts::storage::db_trait::DataCategory;
+use crate::rs_contracts::storage::db_trait::{DataBase, DataCategory};
+use std::sync::Arc;
 
 pub fn only_admin(
     params: &InterpreterParams,
@@ -24,7 +23,7 @@ pub fn only_admin(
         .get(DataCategory::Contracts, b"admin".to_vec())
         .expect("get store error")
     {
-        let contract_map: AdminContract = serde_json::from_slice(&store).unwrap();
+        let contract_map: AdminStore = serde_json::from_slice(&store).unwrap();
         let keys: Vec<_> = contract_map.contracts.keys().collect();
         let latest_key = get_latest_key(current_height, keys);
 
@@ -48,6 +47,37 @@ pub fn check_not_build_in(addr: Address) -> bool {
         }
     }
     true
+}
+
+pub fn check_is_permssion_contract(addr: Address) -> bool {
+    if addr == Address::from(reserved_addresses::PERMISSION_SEND_TX)
+        || addr == Address::from(reserved_addresses::PERMISSION_CREATE_CONTRACT)
+        || addr == Address::from(reserved_addresses::PERMISSION_NEW_PERMISSION)
+        || addr == Address::from(reserved_addresses::PERMISSION_DELETE_PERMISSION)
+        || addr == Address::from(reserved_addresses::PERMISSION_UPDATE_PERMISSION)
+        || addr == Address::from(reserved_addresses::PERMISSION_SET_AUTH)
+        || addr == Address::from(reserved_addresses::PERMISSION_CANCEL_AUTH)
+        || addr == Address::from(reserved_addresses::PERMISSION_NEW_ROLE)
+        || addr == Address::from(reserved_addresses::PERMISSION_DELETE_ROLE)
+        || addr == Address::from(reserved_addresses::PERMISSION_UPDATE_ROLE)
+        || addr == Address::from(reserved_addresses::PERMISSION_SET_ROLE)
+        || addr == Address::from(reserved_addresses::PERMISSION_CANCEL_ROLE)
+        || addr == Address::from(reserved_addresses::PERMISSION_NEW_GROUP)
+        || addr == Address::from(reserved_addresses::PERMISSION_DELETE_GROUP)
+        || addr == Address::from(reserved_addresses::PERMISSION_UPDATE_GROUP)
+        || addr == Address::from(reserved_addresses::PERMISSION_NEW_NODE)
+        || addr == Address::from(reserved_addresses::PERMISSION_DELETE_NODE)
+        || addr == Address::from(reserved_addresses::PERMISSION_UPDATE_NODE)
+        || addr == Address::from(reserved_addresses::PERMISSION_ACCOUNT_QUOTA)
+        || addr == Address::from(reserved_addresses::PERMISSION_BLOCK_QUOTA)
+        || addr == Address::from(reserved_addresses::PERMISSION_BATCH_TX)
+        || addr == Address::from(reserved_addresses::PERMISSION_EMERGENCY_INTERVENTION)
+        || addr == Address::from(reserved_addresses::PERMISSION_QUOTA_PRICE)
+        || addr == Address::from(reserved_addresses::PERMISSION_VERSION)
+    {
+        return true;
+    }
+    false
 }
 
 #[cfg(test)]

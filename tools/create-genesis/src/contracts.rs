@@ -14,10 +14,8 @@
 
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::str::FromStr;
 
-use cita_types::{clean_0x, Address};
-use ethabi::Token;
+use cita_types::clean_0x;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -156,21 +154,21 @@ impl Basic {
         basic
     }
 
-    pub fn as_params(&self, name: &str) -> Vec<Token> {
-        let mut tokens = Vec::new();
-        if let Some(info) = self.list().get(name) {
-            tokens.push(Token::FixedBytes(String::from(name).into_bytes()));
-            let mut conts = Vec::new();
-            let addr = Address::from_str(clean_0x(&info.address)).unwrap();
-            conts.push(Token::Address(addr));
-            let mut funcs = Vec::new();
-            funcs.push(Token::FixedBytes(vec![0, 0, 0, 0]));
+    // pub fn as_params(&self, name: &str) -> Vec<Token> {
+    //     let mut tokens = Vec::new();
+    //     if let Some(info) = self.list().get(name) {
+    //         tokens.push(Token::FixedBytes(String::from(name).into_bytes()));
+    //         let mut conts = Vec::new();
+    //         let addr = Address::from_str(clean_0x(&info.address)).unwrap();
+    //         conts.push(Token::Address(addr));
+    //         let mut funcs = Vec::new();
+    //         funcs.push(Token::FixedBytes(vec![0, 0, 0, 0]));
 
-            tokens.push(Token::Array(conts));
-            tokens.push(Token::Array(funcs));
-        }
-        tokens
-    }
+    //         tokens.push(Token::Array(conts));
+    //         tokens.push(Token::Array(funcs));
+    //     }
+    //     tokens
+    // }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -282,15 +280,14 @@ impl Contracts {
     ) -> BTreeMap<String, String> {
         let mut params = BTreeMap::new();
         if let Some(info) = self.list().get(name) {
+            params.insert("perm_name".to_string(), name.to_string());
             let (conts, funcs) = info.get_contract_info(normal_contracts);
-            println!("===> conts {:?} funcs {:?}", conts, funcs);
             for i in 0..conts.len() {
                 params.insert(
                     funcs.get(i).unwrap().to_string(),
                     conts.get(i).unwrap().to_string(),
                 );
             }
-            params.insert("perm_name".to_string(), name.to_string());
         }
         params
     }

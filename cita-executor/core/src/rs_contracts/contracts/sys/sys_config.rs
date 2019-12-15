@@ -47,13 +47,13 @@ lazy_static! {
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
-pub struct SystemContract {
+pub struct SystemStore {
     contracts: BTreeMap<u64, Option<String>>,
 }
 
-impl SystemContract {
+impl SystemStore {
     pub fn init(str: String, contracts_db: Arc<ContractsDB>) {
-        let mut a = SystemContract::default();
+        let mut a = SystemStore::default();
         a.contracts.insert(0, Some(str.clone()));
 
         let s = serde_json::to_string(&a).unwrap();
@@ -68,12 +68,12 @@ impl SystemContract {
         &self,
         current_height: u64,
         contracts_db: Arc<ContractsDB>,
-    ) -> (Option<SystemContract>, Option<SysConfig>) {
+    ) -> (Option<SystemStore>, Option<SysConfig>) {
         if let Some(store) = contracts_db
             .get(DataCategory::Contracts, b"sys".to_vec())
             .expect("get store error")
         {
-            let contract_map: SystemContract = serde_json::from_slice(&store).unwrap();
+            let contract_map: SystemStore = serde_json::from_slice(&store).unwrap();
             let keys: Vec<_> = contract_map.contracts.keys().collect();
             let latest_key = get_latest_key(current_height, keys.clone());
             trace!(
@@ -98,7 +98,7 @@ impl SystemContract {
     }
 }
 
-impl<B: DB> Contract<B> for SystemContract {
+impl<B: DB> Contract<B> for SystemStore {
     fn execute(
         &self,
         params: &InterpreterParams,
@@ -201,7 +201,7 @@ impl<B: DB> Contract<B> for SystemContract {
                     //     .get(DataCategory::Contracts, b"sys".to_vec())
                     //     .unwrap();
                     // let str = String::from_utf8(bin_map.unwrap()).unwrap();
-                    // let contracts: SystemContract = serde_json::from_str(&str).unwrap();
+                    // let contracts: SystemStore = serde_json::from_str(&str).unwrap();
                     // trace!("System contract system {:?} after update.", contracts);
                 }
                 return result;
