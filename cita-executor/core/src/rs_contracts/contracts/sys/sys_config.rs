@@ -48,11 +48,11 @@ lazy_static! {
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct SystemStore {
-    contracts: BTreeMap<u64, Option<String>>,
+    pub contracts: BTreeMap<u64, Option<String>>,
 }
 
 impl SystemStore {
-    pub fn init(str: String, contracts_db: Arc<ContractsDB>) {
+    pub fn init(str: String, contracts_db: Arc<ContractsDB>) -> Self {
         let mut a = SystemStore::default();
         a.contracts.insert(0, Some(str.clone()));
 
@@ -62,6 +62,7 @@ impl SystemStore {
             b"sys".to_vec(),
             s.as_bytes().to_vec(),
         );
+        a
     }
 
     pub fn get_latest_item(
@@ -208,6 +209,10 @@ impl<B: DB> Contract<B> for SystemStore {
             }
             _ => Err(ContractError::Internal("params error".to_owned())),
         }
+    }
+
+    fn create(&self) -> Box<dyn Contract<B>> {
+        Box::new(SystemStore::default())
     }
 }
 

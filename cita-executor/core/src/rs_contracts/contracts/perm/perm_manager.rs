@@ -62,7 +62,7 @@ lazy_static! {
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct PermStore {
     // key -> height, value -> json(PermissionManager)
-    contracts: BTreeMap<u64, Option<String>>,
+    pub contracts: BTreeMap<u64, Option<String>>,
 }
 
 impl PermStore {
@@ -70,7 +70,7 @@ impl PermStore {
         admin: Address,
         perm_contracts: BTreeMap<Address, String>,
         contracts_db: Arc<ContractsDB>,
-    ) {
+    ) -> Self {
         let mut perm_store = PermStore::default();
 
         let mut perm_manager = PermManager::default();
@@ -103,6 +103,8 @@ impl PermStore {
             b"perm".to_vec(),
             s.as_bytes().to_vec(),
         );
+
+        perm_store
     }
 
     pub fn get_latest_item(
@@ -310,6 +312,10 @@ impl<B: DB> Contract<B> for PermStore {
             }
             _ => Err(ContractError::Internal("params error".to_owned())),
         }
+    }
+
+    fn create(&self) -> Box<dyn Contract<B>> {
+        Box::new(PermStore::default())
     }
 }
 

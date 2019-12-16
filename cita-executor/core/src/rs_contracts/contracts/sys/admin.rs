@@ -31,7 +31,7 @@ pub struct AdminStore {
 }
 
 impl AdminStore {
-    pub fn init(str: String, contracts_db: Arc<ContractsDB>) {
+    pub fn init(str: String, contracts_db: Arc<ContractsDB>) -> Self {
         let mut a = AdminStore::default();
         a.contracts.insert(0, Some(str));
         let s = serde_json::to_string(&a).unwrap();
@@ -40,6 +40,7 @@ impl AdminStore {
             b"admin".to_vec(),
             s.as_bytes().to_vec(),
         );
+        a
     }
 
     pub fn get_latest_item(
@@ -139,6 +140,10 @@ impl<B: DB> Contract<B> for AdminStore {
             }
             _ => Err(ContractError::Internal("params errors".to_owned())),
         }
+    }
+
+    fn create(&self) -> Box<dyn Contract<B>> {
+        Box::new(AdminStore::default())
     }
 }
 

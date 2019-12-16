@@ -50,11 +50,11 @@ lazy_static! {
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct RoleStore {
     // key -> height, value -> json(RoleManager)
-    contracts: BTreeMap<u64, Option<String>>,
+    pub contracts: BTreeMap<u64, Option<String>>,
 }
 
 impl RoleStore {
-    pub fn init(str: String, contracts_db: Arc<ContractsDB>) {
+    pub fn init(str: String, contracts_db: Arc<ContractsDB>) -> Self {
         let mut a = RoleStore::default();
 
         a.contracts.insert(0, Some(str));
@@ -64,6 +64,7 @@ impl RoleStore {
             b"role".to_vec(),
             s.as_bytes().to_vec(),
         );
+        a
     }
 
     pub fn get_latest_item(
@@ -205,6 +206,10 @@ impl<B: DB> Contract<B> for RoleStore {
             }
             _ => Err(ContractError::Internal("params error".to_owned())),
         }
+    }
+
+    fn create(&self) -> Box<dyn Contract<B>> {
+        Box::new(RoleStore::default())
     }
 }
 

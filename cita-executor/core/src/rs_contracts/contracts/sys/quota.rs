@@ -40,11 +40,11 @@ const MIN_LIMIT: u64 = 4_194_304; // 2 ** 22
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct QuotaStore {
-    contracts: BTreeMap<u64, Option<String>>,
+    pub contracts: BTreeMap<u64, Option<String>>,
 }
 
 impl QuotaStore {
-    pub fn init(str: String, contracts_db: Arc<ContractsDB>) {
+    pub fn init(str: String, contracts_db: Arc<ContractsDB>) -> Self {
         let mut a = QuotaStore::default();
         a.contracts.insert(0, Some(str));
         let s = serde_json::to_string(&a).unwrap();
@@ -53,6 +53,7 @@ impl QuotaStore {
             b"quota".to_vec(),
             s.as_bytes().to_vec(),
         );
+        a
     }
 
     pub fn get_latest_item(
@@ -155,6 +156,10 @@ impl<B: DB> Contract<B> for QuotaStore {
             }
             _ => Err(ContractError::Internal("params error".to_owned())),
         }
+    }
+
+    fn create(&self) -> Box<dyn Contract<B>> {
+        Box::new(QuotaStore::default())
     }
 }
 

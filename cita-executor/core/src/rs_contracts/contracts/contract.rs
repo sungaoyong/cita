@@ -19,4 +19,6 @@ where
         contracts_db: Arc<ContractsDB>,
         state: Arc<RefCell<State<B>>>,
     ) -> Result<InterpreterResult, ContractError>;
+
+    fn create(&self) -> Box<dyn Contract<B>>;
 }

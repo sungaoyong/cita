@@ -148,23 +148,25 @@ impl<'a> GenesisCreator<'a> {
                 };
                 self.accounts.insert((*address).clone(), contract);
                 println!("Normal contracts: {:?} {:?} is ok!", contract_name, address);
-            } else if *contract_name == "Authorization" {
-                let mut param = BTreeMap::new();
-                let addr = params
-                    .get(0)
-                    .map(|s| s.clone().to_address())
-                    .unwrap()
-                    .unwrap();
-                param.insert("admin".to_string(), addr.lower_hex());
-                let contract = Account {
-                    nonce: U256::from(1),
-                    code: "".to_string(),
-                    storage: param,
-                    value: U256::from(0),
-                };
-                self.accounts.insert((*address).clone(), contract);
-                println!("Normal contracts: {:?} {:?} is ok!", contract_name, address);
-            } else if *contract_name == "NodeManager" {
+            }
+            //  else if *contract_name == "Authorization" {
+            //     let mut param = BTreeMap::new();
+            //     let addr = params
+            //         .get(0)
+            //         .map(|s| s.clone().to_address())
+            //         .unwrap()
+            //         .unwrap();
+            //     param.insert("admin".to_string(), addr.lower_hex());
+            //     let contract = Account {
+            //         nonce: U256::from(1),
+            //         code: "".to_string(),
+            //         storage: param,
+            //         value: U256::from(0),
+            //     };
+            //     self.accounts.insert((*address).clone(), contract);
+            //     println!("Normal contracts: {:?} {:?} is ok!", contract_name, address);
+            // }
+            else if *contract_name == "NodeManager" {
                 match (params.get(0), params.get(1)) {
                     (Some(Token::Array(n)), Some(Token::Array(s))) => {
                         let nodes = n
@@ -325,6 +327,7 @@ impl<'a> GenesisCreator<'a> {
                 || *contract_name == "RoleCreator"
                 || *contract_name == "RoleAuth"
                 || *contract_name == "GroupCreator"
+                || *contract_name == "Authorization"
             {
                 // has constructor without parameters or no constructor
                 println!("Normal contracts: {:?} {:?} is ok!", contract_name, address);

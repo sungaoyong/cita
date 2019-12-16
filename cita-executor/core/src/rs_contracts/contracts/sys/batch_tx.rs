@@ -39,6 +39,10 @@ impl<B: DB + 'static> Contract<B> for BatchTx {
 
         return result;
     }
+
+    fn create(&self) -> Box<dyn Contract<B>> {
+        Box::new(BatchTx::default())
+    }
 }
 
 impl BatchTx {
